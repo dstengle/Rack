@@ -232,6 +232,45 @@ All dependencies are bundled in `dep/` directory:
 - macOS: `-stdlib=libc++ -mmacosx-version-min=10.9`
 - Windows: `-D_USE_MATH_DEFINES -municode`
 
+### Docker Build Environment
+
+For consistent, reproducible builds across different systems, VCV Rack includes a Docker-based build environment for Ubuntu 24.04.
+
+**Quick Start:**
+```bash
+# Build Docker image
+./docker-build.sh build-image
+
+# Build dependencies (once)
+./docker-build.sh deps
+
+# Build VCV Rack
+./docker-build.sh build
+
+# Run with HTTP API
+./docker-build.sh run
+```
+
+**Features:**
+- Ubuntu 24.04 base image with all build dependencies
+- Persistent volume caching for fast incremental builds
+- Cross-platform development (build on any Docker-capable system)
+- Integrated HTTP API testing environment
+- Parallel build support (`-j` flag)
+
+**Documentation:**
+- `DOCKER_QUICKSTART.md` - 5-minute quick start guide
+- `DOCKER_BUILD.md` - Comprehensive Docker build documentation
+- `docker-build.sh` - Main build script with all commands
+
+**Common Commands:**
+```bash
+./docker-build.sh shell      # Open interactive shell
+./docker-build.sh build -j8  # Rebuild with 8 parallel jobs
+./docker-build.sh test-api   # Test HTTP API
+./docker-build.sh clean      # Clean build artifacts
+```
+
 ---
 
 ## Architecture

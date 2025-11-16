@@ -1,0 +1,55 @@
+# Docker ignore file for VCV Rack build
+
+# Build artifacts
+build/
+dist/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+Rack
+libRack.*
+
+# Dependencies (will be built in container)
+dep/lib/
+dep/include/
+dep/bin/
+dep/share/
+dep/glew-*
+dep/glfw-*
+dep/jansson-*
+dep/openssl-*
+dep/curl-*
+dep/zstd-*
+dep/libarchive-*
+dep/speexdsp-*
+dep/libsamplerate-*
+dep/rtmidi-*
+dep/rtaudio-*
+
+# Version control
+.git/
+.gitignore
+.gitmodules
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation (can be built separately)
+docs/
+
+# User data
+plugins/
+presets/
+log.txt
+
+# Temporary files
+*.tmp
+*.cache

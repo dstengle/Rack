@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Build environment for VCV Rack
+  rack-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vcv-rack-build:ubuntu24.04
+    container_name: rack-builder
+    volumes:
+      # Mount source code
+      - .:/workspace
+      # Persist build cache
+      - rack-build-cache:/workspace/build
+      - rack-dep-cache:/workspace/dep
+    environment:
+      - RACK_DIR=/workspace
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+    # Network mode for HTTP API testing
+    network_mode: bridge
+    ports:
+      # HTTP API port
+      - "8080:8080"
+    working_dir: /workspace
+
+  # Development environment with additional tools
+  rack-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vcv-rack-build:ubuntu24.04
+    container_name: rack-dev
+    volumes:
+      - .:/workspace
+      - rack-dev-build-cache:/workspace/build
+      - rack-dev-dep-cache:/workspace/dep
+    environment:
+      - RACK_DIR=/workspace
+    stdin_open: true
+    tty: true
+    network_mode: bridge
+    ports:
+      - "8081:8080"
+    working_dir: /workspace
+    command: /bin/bash
+
+volumes:
+  # Named volumes to persist build artifacts
+  rack-build-cache:
+    driver: local
+  rack-dep-cache:
+    driver: local
+  rack-dev-build-cache:
+    driver: local
+  rack-dev-dep-cache:
+    driver: local
