@@ -23,6 +23,7 @@
 #include <string.hpp>
 #include <library.hpp>
 #include <network.hpp>
+#include <httpapi.hpp>
 
 #include <getopt.h>
 #include <unistd.h> // for getopt
@@ -71,6 +72,8 @@ int main(int argc, char* argv[]) {
 	std::string patchPath;
 	bool screenshot = false;
 	float screenshotZoom = 1.f;
+	bool httpApiEnabled = false;
+	int httpApiPort = 8080;
 	const std::string appInfo = APP_NAME + " " + APP_EDITION_NAME + " " + APP_VERSION + " " + APP_OS_NAME + " " + APP_CPU_NAME;
 
 	// Parse command line arguments
@@ -82,13 +85,14 @@ int main(int argc, char* argv[]) {
 		{"system", required_argument, NULL, 's'},
 		{"user", required_argument, NULL, 'u'},
 		{"version", no_argument, NULL, 'v'},
+		{"httpapi", optional_argument, NULL, 'H'},
 		{"help", no_argument, NULL, 256},
 		{NULL, 0, NULL, 0}
 	};
 	int c;
 	opterr = 0;
 
-	while ((c = getopt_long(argc, argv, "adht:s:u:vp:", longOptions, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "adht:s:u:vH::p:", longOptions, NULL)) != -1) {
 		switch (c) {
 			case 'a': {
 				settings::safeMode = true;
@@ -113,6 +117,12 @@ int main(int argc, char* argv[]) {
 				std::fprintf(stderr, "%s\n", appInfo.c_str());
 				return 0;
 			}
+			case 'H': {
+				httpApiEnabled = true;
+				if (optarg) {
+					httpApiPort = std::atoi(optarg);
+				}
+			} break;
 			case 256: { // --help
 				std::fprintf(stderr, "%s\n", appInfo.c_str());
 				std::fprintf(stderr, "https://vcvrack.com/manual/Installing#Command-line-usage\n");
@@ -262,6 +272,12 @@ int main(int argc, char* argv[]) {
 
 	APP->engine->startFallbackThread();
 
+	// Start HTTP API server if enabled
+	if (httpApiEnabled) {
+		INFO("Starting HTTP API server on port %d", httpApiPort);
+		httpapi::init(httpApiPort);
+	}
+
 	// Run context
 	if (settings::headless) {
 		printf("Press enter to exit.\n");
@@ -282,6 +298,12 @@ int main(int argc, char* argv[]) {
 		// INFO("Re-creating window");
 		// APP->window = new window::Window;
 		// APP->window->run();
+	}
+
+	// Destroy HTTP API server
+	if (httpApiEnabled) {
+		INFO("Destroying HTTP API server");
+		httpapi::destroy();
 	}
 
 	// Destroy context

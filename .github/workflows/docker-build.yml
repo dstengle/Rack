@@ -1,0 +1,64 @@
+# GitHub Actions workflow for Docker-based builds
+# This workflow demonstrates CI/CD using the Docker build environment
+
+name: Docker Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        run: |
+          chmod +x docker-build.sh
+          ./docker-build.sh build-image
+
+      - name: Build dependencies
+        run: ./docker-build.sh deps -j4
+
+      - name: Build VCV Rack
+        run: ./docker-build.sh build -j4
+
+      - name: Run tests
+        run: |
+          # Start Rack in background with HTTP API
+          docker-compose up -d rack-build
+          sleep 5
+
+          # Wait for HTTP API to be ready
+          timeout 30 bash -c 'until curl -f http://localhost:8080/api/plugins; do sleep 1; done'
+
+          # Run API tests
+          ./docker-build.sh test-api
+
+          # Stop Rack
+          docker-compose down
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: vcv-rack-linux
+          path: |
+            Rack
+            libRack.so
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose down -v
