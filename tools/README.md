@@ -1,8 +1,39 @@
 # VCV Rack CLI Client
 
+![Build CLI Client](https://github.com/dstengle/Rack/workflows/Build%20CLI%20Client/badge.svg)
+
 A command-line interface for interacting with the VCV Rack HTTP API.
 
-## Building
+## Download Pre-built Binaries
+
+Pre-built binaries are available from GitHub Actions for all supported platforms:
+
+1. Go to the [Actions tab](https://github.com/dstengle/Rack/actions/workflows/build-cli-client.yml)
+2. Click on the latest successful workflow run
+3. Download the artifact for your platform:
+   - **Linux (x64)**: `rack-cli-linux-x64.tar.gz`
+   - **macOS (x86_64)**: `rack-cli-macos-x86_64.tar.gz`
+   - **macOS (ARM64)**: `rack-cli-macos-arm64.tar.gz`
+   - **Windows (x64)**: `rack-cli-windows-x64.zip`
+
+For releases, binaries are attached to the release page.
+
+### Extract and Run
+
+#### Linux / macOS
+```bash
+tar -xzf rack-cli-*.tar.gz
+chmod +x rack-cli
+./rack-cli --help
+```
+
+#### Windows
+Extract `rack-cli-windows-x64.zip` and run:
+```powershell
+.\rack-cli.exe --help
+```
+
+## Building from Source
 
 ### Prerequisites
 
