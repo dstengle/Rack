@@ -1,0 +1,308 @@
+# GitHub Actions workflow for building VCV Rack and CLI Client
+# Builds Rack binaries and the rack-cli tool for Linux
+
+name: Build CLI Client
+
+on:
+  push:
+    branches: [ main, develop, 'claude/**' ]
+    paths:
+      - 'tools/rack-cli.cpp'
+      - 'tools/README.md'
+      - 'Makefile'
+      - 'src/**'
+      - 'include/**'
+      - '.github/workflows/build-cli-client.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'tools/rack-cli.cpp'
+      - 'tools/README.md'
+      - 'Makefile'
+      - 'src/**'
+      - 'include/**'
+  workflow_dispatch:
+  release:
+    types: [created]
+
+jobs:
+  build-linux:
+    name: Build for Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libgl-dev \
+            libglu1-mesa-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            zlib1g-dev \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libpulse-dev \
+            cmake \
+            wget \
+            curl \
+            git \
+            tar \
+            unzip \
+            jq
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: dep
+          key: ${{ runner.os }}-deps-${{ hashFiles('dep.mk', 'dep/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Build dependencies
+        run: make dep -j$(nproc)
+
+      - name: Build VCV Rack
+        run: make all -j$(nproc)
+
+      - name: Build CLI client
+        run: make cli -j$(nproc)
+
+      - name: Verify binaries
+        run: |
+          echo "=== Rack Binary ==="
+          ls -lh Rack
+          file Rack
+          ldd Rack || true
+          echo ""
+          echo "=== libRack.so ==="
+          ls -lh libRack.so
+          file libRack.so
+          ldd libRack.so || true
+          echo ""
+          echo "=== CLI Client ==="
+          ls -lh tools/rack-cli
+          file tools/rack-cli
+          ldd tools/rack-cli || true
+          echo ""
+          echo "=== CLI Client Help ==="
+          ./tools/rack-cli --help
+
+      - name: Create archive
+        run: |
+          mkdir -p release
+          # Copy Rack binaries
+          cp Rack release/
+          cp libRack.so release/
+          # Copy CLI client
+          cp tools/rack-cli release/
+          cp tools/README.md release/CLI-README.md
+          cp tools/test-cli.sh release/
+          # Copy Rack resources
+          cp -r res release/
+          cp -r presets release/
+          cp -r translations release/
+          cp cacert.pem release/
+          cp Core.json release/
+          cp template.vcv release/
+          cp LICENSE-GPLv3.txt release/
+          cp CHANGELOG.md release/
+          cp README.md release/
+          # Create README for the release
+          cat > release/README.txt << 'EOF'
+VCV Rack Linux Build with CLI Client
+=====================================
+
+This archive contains:
+- Rack: VCV Rack standalone application
+- libRack.so: VCV Rack shared library
+- rack-cli: CLI client for HTTP API
+- res/: Resources (fonts, components, etc.)
+- presets/: Module presets
+- translations/: i18n files
+
+Quick Start:
+1. Extract this archive
+2. Run Rack with HTTP API: ./Rack --httpapi
+3. In another terminal, use CLI: ./rack-cli list-modules
+
+For CLI client documentation, see CLI-README.md
+For Rack documentation, see README.md
+
+EOF
+          tar -czf vcv-rack-linux-x64.tar.gz -C release .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcv-rack-linux-x64
+          path: vcv-rack-linux-x64.tar.gz
+          retention-days: 30
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./vcv-rack-linux-x64.tar.gz
+          asset_name: vcv-rack-linux-x64.tar.gz
+          asset_content_type: application/gzip
+
+  test-cli:
+    name: Test CLI Client
+    needs: [build-linux]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: vcv-rack-linux-x64
+
+      - name: Extract build
+        run: |
+          tar -xzf vcv-rack-linux-x64.tar.gz
+          chmod +x Rack rack-cli
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1 \
+            libx11-6 \
+            libasound2 \
+            libjack0 \
+            libpulse0 \
+            xvfb \
+            curl \
+            jq
+
+      - name: Start Rack with HTTP API
+        run: |
+          # Start Rack in background with virtual display
+          Xvfb :99 -screen 0 1024x768x24 &
+          export DISPLAY=:99
+          ./Rack --httpapi &
+          RACK_PID=$!
+          echo "RACK_PID=$RACK_PID" >> $GITHUB_ENV
+
+          # Wait for API to be ready
+          echo "Waiting for HTTP API to be ready..."
+          for i in {1..60}; do
+            if curl -sf http://localhost:8080/api/plugins > /dev/null 2>&1; then
+              echo "HTTP API is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/60..."
+            sleep 2
+          done
+          echo "ERROR: HTTP API did not become ready"
+          exit 1
+
+      - name: Create test patch
+        run: |
+          # Create test modules
+          VCO_ID=$(curl -sf -X POST http://localhost:8080/api/modules \
+            -H "Content-Type: application/json" \
+            -d '{"pluginSlug":"Fundamental","modelSlug":"VCO-1","pos":{"x":0,"y":0}}' \
+            | jq -r '.id')
+
+          VCF_ID=$(curl -sf -X POST http://localhost:8080/api/modules \
+            -H "Content-Type: application/json" \
+            -d '{"pluginSlug":"Fundamental","modelSlug":"VCF","pos":{"x":100,"y":0}}' \
+            | jq -r '.id')
+
+          VCA_ID=$(curl -sf -X POST http://localhost:8080/api/modules \
+            -H "Content-Type: application/json" \
+            -d '{"pluginSlug":"Fundamental","modelSlug":"VCA-1","pos":{"x":200,"y":0}}' \
+            | jq -r '.id')
+
+          # Create cables
+          curl -sf -X POST http://localhost:8080/api/cables \
+            -H "Content-Type: application/json" \
+            -d "{\"outputModuleId\":$VCO_ID,\"outputId\":0,\"inputModuleId\":$VCF_ID,\"inputId\":0}"
+
+          curl -sf -X POST http://localhost:8080/api/cables \
+            -H "Content-Type: application/json" \
+            -d "{\"outputModuleId\":$VCF_ID,\"outputId\":0,\"inputModuleId\":$VCA_ID,\"inputId\":0}"
+
+          echo "Test patch created successfully"
+
+      - name: Test list-modules command
+        run: |
+          echo "Testing list-modules..."
+          ./rack-cli list-modules
+          if [ $? -eq 0 ]; then
+            echo "✓ list-modules test passed"
+          else
+            echo "✗ list-modules test failed"
+            exit 1
+          fi
+
+      - name: Test show-module command
+        run: |
+          echo "Testing show-module..."
+          # Get first module ID
+          MODULE_ID=$(curl -sf http://localhost:8080/api/modules | jq -r '.modules[0].id')
+          ./rack-cli show-module "$MODULE_ID"
+          if [ $? -eq 0 ]; then
+            echo "✓ show-module test passed"
+          else
+            echo "✗ show-module test failed"
+            exit 1
+          fi
+
+      - name: Test list-connections command
+        run: |
+          echo "Testing list-connections..."
+          ./rack-cli list-connections
+          if [ $? -eq 0 ]; then
+            echo "✓ list-connections test passed"
+          else
+            echo "✗ list-connections test failed"
+            exit 1
+          fi
+
+      - name: Test list-connections with sorting
+        run: |
+          echo "Testing list-connections --sort-by module..."
+          ./rack-cli list-connections --sort-by module
+          if [ $? -eq 0 ]; then
+            echo "✓ list-connections --sort-by module test passed"
+          else
+            echo "✗ list-connections --sort-by module test failed"
+            exit 1
+          fi
+
+          echo "Testing list-connections --sort-by type..."
+          ./rack-cli list-connections --sort-by type
+          if [ $? -eq 0 ]; then
+            echo "✓ list-connections --sort-by type test passed"
+          else
+            echo "✗ list-connections --sort-by type test failed"
+            exit 1
+          fi
+
+      - name: Stop Rack
+        if: always()
+        run: |
+          if [ -n "$RACK_PID" ]; then
+            kill $RACK_PID 2>/dev/null || true
+          fi
+          pkill Rack || true

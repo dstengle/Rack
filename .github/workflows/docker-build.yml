@@ -34,6 +34,9 @@ jobs:
       - name: Build VCV Rack
         run: ./docker-build.sh build -j4
 
+      - name: Build CLI client
+        run: ./docker-build.sh exec make cli
+
       - name: Run tests
         run: |
           # Start Rack in background with HTTP API
@@ -56,6 +59,7 @@ jobs:
           path: |
             Rack
             libRack.so
+            tools/rack-cli
           retention-days: 7
 
       - name: Cleanup

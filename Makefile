@@ -104,6 +104,37 @@ STANDALONE_OBJECTS += $(TARGET)
 $(STANDALONE_TARGET): $(STANDALONE_SOURCES) $(STANDALONE_OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(STANDALONE_LDFLAGS)
 
+# CLI client tool
+
+CLI_SOURCES = tools/rack-cli.cpp
+ifdef ARCH_LIN
+	CLI_TARGET = tools/rack-cli
+	CLI_LDFLAGS += -static-libstdc++ -static-libgcc
+	CLI_LDFLAGS += dep/lib/libcurl.a dep/lib/libssl.a dep/lib/libcrypto.a dep/lib/libjansson.a
+	CLI_LDFLAGS += -lpthread -ldl
+endif
+ifdef ARCH_MAC
+	CLI_TARGET = tools/rack-cli
+	CLI_LDFLAGS += -stdlib=libc++
+	CLI_LDFLAGS += dep/lib/libcurl.a dep/lib/libssl.a dep/lib/libcrypto.a dep/lib/libjansson.a
+	CLI_LDFLAGS += -lpthread -ldl
+	CLI_LDFLAGS += -framework CoreFoundation -framework Security
+endif
+ifdef ARCH_WIN
+	CLI_TARGET = tools/rack-cli.exe
+	CLI_LDFLAGS += -static-libstdc++ -static-libgcc
+	CLI_LDFLAGS += -Wl,-Bstatic
+	CLI_LDFLAGS += dep/lib/libcurl.a dep/lib/libssl.a dep/lib/libcrypto.a dep/lib/libjansson.a
+	CLI_LDFLAGS += -Wl,-Bdynamic
+	CLI_LDFLAGS += -lws2_32 -lcrypt32 -lbcrypt
+endif
+
+$(CLI_TARGET): $(CLI_SOURCES)
+	@mkdir -p tools
+	$(CXX) $(CXXFLAGS) -Iinclude -Idep/include -o $@ $^ $(CLI_LDFLAGS)
+
+cli: $(CLI_TARGET)
+
 # Convenience targets
 
 all: $(TARGET) $(STANDALONE_TARGET)
@@ -147,7 +178,7 @@ valgrind: $(STANDALONE_TARGET)
 	valgrind $(VALGRIND_FLAGS) ./$< -d
 
 clean:
-	rm -rfv build dist $(TARGET) $(STANDALONE_TARGET) *.a
+	rm -rfv build dist $(TARGET) $(STANDALONE_TARGET) $(CLI_TARGET) *.a
 
 # Windows resources
 build/%.res: %.rc
@@ -320,4 +351,4 @@ cleandist:
 
 
 .DEFAULT_GOAL := all
-.PHONY: all dep run debug clean plugins dist sdk package lipo notarize
+.PHONY: all dep run debug clean cli plugins dist sdk package lipo notarize
