@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     libxinerama-dev \
     libxcursor-dev \
     libxi-dev \
-    libasound2-dev \
+    libasound2t64-dev \
     libjack-jackd2-dev \
     libpulse-dev \
     libgl1-mesa-dev \

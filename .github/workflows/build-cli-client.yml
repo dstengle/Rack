@@ -49,7 +49,7 @@ jobs:
             libxcursor-dev \
             libxi-dev \
             zlib1g-dev \
-            libasound2-dev \
+            libasound2t64-dev \
             libjack-jackd2-dev \
             libpulse-dev \
             cmake \
@@ -186,7 +186,7 @@ jobs:
           sudo apt-get install -y \
             libgl1 \
             libx11-6 \
-            libasound2 \
+            libasound2t64 \
             libjack0 \
             libpulse0 \
             xvfb \
