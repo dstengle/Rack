@@ -291,7 +291,7 @@ static void handleGetModuleDetails(socket_t client, int64_t moduleId) {
 		if (i < module->paramQuantities.size() && module->paramQuantities[i]) {
 			engine::ParamQuantity* pq = module->paramQuantities[i];
 			json_object_set_new(paramJ, "name", json_string(pq->name.c_str()));
-			json_object_set_new(paramJ, "label", json_string(pq->label.c_str()));
+			json_object_set_new(paramJ, "label", json_string(pq->getLabel().c_str()));
 			json_object_set_new(paramJ, "unit", json_string(pq->unit.c_str()));
 			json_object_set_new(paramJ, "minValue", json_real(pq->minValue));
 			json_object_set_new(paramJ, "maxValue", json_real(pq->maxValue));
