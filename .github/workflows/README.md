@@ -35,59 +35,54 @@ Builds VCV Rack and the CLI client using the Docker build environment (Ubuntu 24
 
 ### 2. Build CLI Client (`build-cli-client.yml`)
 
-Builds the rack-cli tool for all supported platforms with comprehensive testing.
+Builds VCV Rack and the rack-cli tool for Linux with comprehensive testing.
 
 **Triggers:**
-- Push to `main`, `develop`, or `claude/**` branches (when CLI files change)
-- Pull requests to `main` or `develop` (when CLI files change)
+- Push to `main`, `develop`, or `claude/**` branches (when source files change)
+- Pull requests to `main` or `develop` (when source files change)
 - Manual dispatch
 - GitHub releases (to attach binaries)
 
 **Jobs:**
 
 #### `build-linux`
-Builds CLI client for Linux (x86_64)
+Builds VCV Rack and CLI client for Linux (x86_64)
 - Uses Ubuntu latest
+- Builds dependencies from source
+- Builds Rack executable and libRack.so
+- Builds CLI client
 - Static linking for portability
-- Creates `.tar.gz` archive
+- Includes all resources (fonts, presets, translations)
+- Creates comprehensive `.tar.gz` archive
 
-#### `build-macos`
-Builds CLI client for macOS (x86_64 and ARM64)
-- Uses macOS latest
-- Matrix build for both architectures
-- Universal binary support
-- Creates `.tar.gz` archive
-
-#### `build-windows`
-Builds CLI client for Windows (x86_64)
-- Uses Windows latest with MSYS2
-- MinGW-w64 toolchain
-- Includes required DLLs
-- Creates `.zip` archive
+**What's included in the build:**
+- `Rack` - VCV Rack standalone application
+- `libRack.so` - VCV Rack shared library
+- `rack-cli` - CLI client for HTTP API
+- `res/` - Resources (fonts, component SVGs, Core module panels)
+- `presets/` - Module presets
+- `translations/` - Internationalization files
+- `cacert.pem` - SSL certificates for HTTPS
+- `Core.json` - Core module metadata
+- `template.vcv` - Default patch template
+- Documentation and license files
 
 #### `test-cli`
 Integration testing (depends on `build-linux`)
-- Downloads Linux binary
-- Starts Rack with Docker
-- Creates test patch via API
+- Downloads Linux build artifact
+- Starts Rack with Xvfb (virtual display)
+- Creates test patch via API (VCO → VCF → VCA)
 - Tests all CLI commands:
   - `list-modules`
   - `show-module <id>`
   - `list-connections`
+  - `list-connections --sort-by module`
   - `list-connections --sort-by type`
-
-#### `create-release-summary`
-Creates release documentation (only on releases)
-- Generates release notes
-- Uploads summary artifact
 
 **Artifacts:**
 
 For regular builds (retention: 30 days):
-- `rack-cli-linux-x64.tar.gz`
-- `rack-cli-macos-x86_64.tar.gz`
-- `rack-cli-macos-arm64.tar.gz`
-- `rack-cli-windows-x64.zip`
+- `vcv-rack-linux-x64.tar.gz` - Complete VCV Rack build with CLI client
 
 For releases:
 - Automatically attached to GitHub release
@@ -120,29 +115,26 @@ You can manually trigger workflows from the GitHub Actions tab:
 If the workflow was triggered by a release:
 1. Go to **Releases** tab
 2. Find the release
-3. Download the binary for your platform from **Assets**
+3. Download `vcv-rack-linux-x64.tar.gz` from **Assets**
 
-### Using the Binaries
+### Using the Build
 
 #### Linux
 ```bash
-tar -xzf rack-cli-linux-x64.tar.gz
-chmod +x rack-cli
-./rack-cli --help
+# Extract archive
+tar -xzf vcv-rack-linux-x64.tar.gz
+cd vcv-rack-linux-x64
+
+# Run VCV Rack with HTTP API
+./Rack --httpapi
+
+# In another terminal, use CLI client
+./rack-cli list-modules
+./rack-cli show-module 1
+./rack-cli list-connections --sort-by type
 ```
 
-#### macOS
-```bash
-tar -xzf rack-cli-macos-x86_64.tar.gz  # or arm64
-chmod +x rack-cli
-./rack-cli --help
-```
-
-#### Windows
-```powershell
-# Extract rack-cli-windows-x64.zip
-.\rack-cli.exe --help
-```
+The archive includes everything needed to run VCV Rack and the CLI client.
 
 ---
 
@@ -169,27 +161,22 @@ chmod +x rack-cli
 ./docker-build.sh exec ./tools/rack-cli list-modules
 ```
 
-### Test CLI Client Build
+### Test Full Build Locally
 
 #### Linux
 ```bash
+# Build dependencies
 make dep
-make cli
-./tools/rack-cli --help
-```
 
-#### macOS
-```bash
-make dep
-make cli
-./tools/rack-cli --help
-```
+# Build Rack
+make all
 
-#### Windows (MSYS2)
-```bash
-make dep
+# Build CLI client
 make cli
-./tools/rack-cli.exe --help
+
+# Test
+./Rack --httpapi &
+./tools/rack-cli list-modules
 ```
 
 ---
@@ -200,17 +187,8 @@ make cli
 
 Both workflows use GitHub Actions caching to speed up builds:
 - Dependencies are cached based on `dep.mk` and `dep/Makefile` hashes
-- Cache is platform-specific
 - Cache is automatically invalidated when dependencies change
-
-### Matrix Builds
-
-The macOS build uses a matrix strategy to build for both x86_64 and ARM64:
-```yaml
-strategy:
-  matrix:
-    arch: [x86_64, arm64]
-```
+- Typical cache hit: 2-3 minutes vs 10-15 minutes for full dependency build
 
 ### Conditional Steps
 
@@ -328,18 +306,16 @@ All dependencies are built from source using the project's `dep/` system:
 | Job | Time | Cache Hit | Cache Miss |
 |-----|------|-----------|------------|
 | build-linux | 10-15 min | 2-3 min | 10-15 min |
-| build-macos (x86_64) | 15-20 min | 3-5 min | 15-20 min |
-| build-macos (arm64) | 15-20 min | 3-5 min | 15-20 min |
-| build-windows | 20-25 min | 5-7 min | 20-25 min |
-| test-cli | 5-10 min | 2-3 min | 5-10 min |
+| test-cli | 5-10 min | N/A | 5-10 min |
+| **Total** | **15-25 min** | **7-13 min** | **15-25 min** |
 
 ### Optimization Tips
 
 1. **Enable caching** - Already implemented
-2. **Use parallel builds** - `-j$(nproc)`
-3. **Limit triggers** - Only run on relevant file changes
-4. **Use matrix builds** - Build multiple platforms in parallel
-5. **Skip tests** for draft PRs (add conditional)
+2. **Use parallel builds** - `-j$(nproc)` flag used throughout
+3. **Limit triggers** - Only runs on relevant file changes
+4. **Path-based triggers** - Skips builds when only docs change
+5. **Artifact retention** - 30 days keeps storage costs low
 
 ---
 

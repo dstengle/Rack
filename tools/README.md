@@ -6,31 +6,38 @@ A command-line interface for interacting with the VCV Rack HTTP API.
 
 ## Download Pre-built Binaries
 
-Pre-built binaries are available from GitHub Actions for all supported platforms:
+Complete Linux builds (VCV Rack + CLI client) are available from GitHub Actions:
 
 1. Go to the [Actions tab](https://github.com/dstengle/Rack/actions/workflows/build-cli-client.yml)
 2. Click on the latest successful workflow run
-3. Download the artifact for your platform:
-   - **Linux (x64)**: `rack-cli-linux-x64.tar.gz`
-   - **macOS (x86_64)**: `rack-cli-macos-x86_64.tar.gz`
-   - **macOS (ARM64)**: `rack-cli-macos-arm64.tar.gz`
-   - **Windows (x64)**: `rack-cli-windows-x64.zip`
+3. Download `vcv-rack-linux-x64.tar.gz` from the **Artifacts** section
 
-For releases, binaries are attached to the release page.
+For releases, the build is attached to the release page.
+
+### What's Included
+
+The build archive includes:
+- **Rack** - VCV Rack standalone application
+- **libRack.so** - VCV Rack shared library
+- **rack-cli** - CLI client for HTTP API
+- **res/** - Resources (fonts, component SVGs, panels)
+- **presets/** - Module presets
+- **translations/** - i18n files
+- Documentation and configuration files
 
 ### Extract and Run
 
-#### Linux / macOS
 ```bash
-tar -xzf rack-cli-*.tar.gz
-chmod +x rack-cli
-./rack-cli --help
-```
+# Extract archive
+tar -xzf vcv-rack-linux-x64.tar.gz
 
-#### Windows
-Extract `rack-cli-windows-x64.zip` and run:
-```powershell
-.\rack-cli.exe --help
+# Run VCV Rack with HTTP API
+./Rack --httpapi
+
+# In another terminal, use CLI client
+./rack-cli list-modules
+./rack-cli show-module 1
+./rack-cli list-connections
 ```
 
 ## Building from Source
@@ -49,32 +56,28 @@ From the root Rack directory:
 # Build dependencies first (if not already built)
 make dep
 
+# Build VCV Rack
+make all
+
 # Build the CLI client
 make cli
 ```
 
-The executable will be created at `tools/rack-cli` (or `tools/rack-cli.exe` on Windows).
+The executable will be created at `tools/rack-cli`.
 
 ### Manual Build
 
-If you prefer to build manually:
+If you prefer to build manually (Linux):
 
 ```bash
-# Linux
 g++ -o tools/rack-cli tools/rack-cli.cpp \
     -Iinclude -Idep/include \
     -static-libstdc++ -static-libgcc \
     dep/lib/libcurl.a dep/lib/libssl.a dep/lib/libcrypto.a dep/lib/libjansson.a \
     -lpthread -ldl
-
-# macOS
-clang++ -o tools/rack-cli tools/rack-cli.cpp \
-    -Iinclude -Idep/include \
-    -stdlib=libc++ \
-    dep/lib/libcurl.a dep/lib/libssl.a dep/lib/libcrypto.a dep/lib/libjansson.a \
-    -lpthread -ldl \
-    -framework CoreFoundation -framework Security
 ```
+
+For macOS and Windows, you'll need to build dependencies and adjust linker flags accordingly. See the Makefile for platform-specific settings.
 
 ## Usage
 

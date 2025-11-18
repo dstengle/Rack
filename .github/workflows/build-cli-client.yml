@@ -1,5 +1,5 @@
-# GitHub Actions workflow for building VCV Rack CLI Client
-# Builds the rack-cli tool for Linux, macOS, and Windows
+# GitHub Actions workflow for building VCV Rack and CLI Client
+# Builds Rack binaries and the rack-cli tool for Linux
 
 name: Build CLI Client
 
@@ -10,6 +10,8 @@ on:
       - 'tools/rack-cli.cpp'
       - 'tools/README.md'
       - 'Makefile'
+      - 'src/**'
+      - 'include/**'
       - '.github/workflows/build-cli-client.yml'
   pull_request:
     branches: [ main, develop ]
@@ -17,6 +19,8 @@ on:
       - 'tools/rack-cli.cpp'
       - 'tools/README.md'
       - 'Makefile'
+      - 'src/**'
+      - 'include/**'
   workflow_dispatch:
   release:
     types: [created]
@@ -53,7 +57,8 @@ jobs:
             curl \
             git \
             tar \
-            unzip
+            unzip \
+            jq
 
       - name: Cache dependencies
         uses: actions/cache@v4
@@ -66,29 +71,81 @@ jobs:
       - name: Build dependencies
         run: make dep -j$(nproc)
 
+      - name: Build VCV Rack
+        run: make all -j$(nproc)
+
       - name: Build CLI client
         run: make cli -j$(nproc)
 
-      - name: Verify binary
+      - name: Verify binaries
         run: |
+          echo "=== Rack Binary ==="
+          ls -lh Rack
+          file Rack
+          ldd Rack || true
+          echo ""
+          echo "=== libRack.so ==="
+          ls -lh libRack.so
+          file libRack.so
+          ldd libRack.so || true
+          echo ""
+          echo "=== CLI Client ==="
           ls -lh tools/rack-cli
           file tools/rack-cli
           ldd tools/rack-cli || true
+          echo ""
+          echo "=== CLI Client Help ==="
           ./tools/rack-cli --help
 
       - name: Create archive
         run: |
           mkdir -p release
+          # Copy Rack binaries
+          cp Rack release/
+          cp libRack.so release/
+          # Copy CLI client
           cp tools/rack-cli release/
-          cp tools/README.md release/
+          cp tools/README.md release/CLI-README.md
           cp tools/test-cli.sh release/
-          tar -czf rack-cli-linux-x64.tar.gz -C release .
+          # Copy Rack resources
+          cp -r res release/
+          cp -r presets release/
+          cp -r translations release/
+          cp cacert.pem release/
+          cp Core.json release/
+          cp template.vcv release/
+          cp LICENSE-GPLv3.txt release/
+          cp CHANGELOG.md release/
+          cp README.md release/
+          # Create README for the release
+          cat > release/README.txt << 'EOF'
+VCV Rack Linux Build with CLI Client
+=====================================
+
+This archive contains:
+- Rack: VCV Rack standalone application
+- libRack.so: VCV Rack shared library
+- rack-cli: CLI client for HTTP API
+- res/: Resources (fonts, components, etc.)
+- presets/: Module presets
+- translations/: i18n files
+
+Quick Start:
+1. Extract this archive
+2. Run Rack with HTTP API: ./Rack --httpapi
+3. In another terminal, use CLI: ./rack-cli list-modules
+
+For CLI client documentation, see CLI-README.md
+For Rack documentation, see README.md
+
+EOF
+          tar -czf vcv-rack-linux-x64.tar.gz -C release .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rack-cli-linux-x64
-          path: rack-cli-linux-x64.tar.gz
+          name: vcv-rack-linux-x64
+          path: vcv-rack-linux-x64.tar.gz
           retention-days: 30
 
       - name: Upload to release
@@ -98,172 +155,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./rack-cli-linux-x64.tar.gz
-          asset_name: rack-cli-linux-x64.tar.gz
+          asset_path: ./vcv-rack-linux-x64.tar.gz
+          asset_name: vcv-rack-linux-x64.tar.gz
           asset_content_type: application/gzip
-
-  build-macos:
-    name: Build for macOS
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install dependencies
-        run: |
-          brew install cmake wget curl git
-
-      - name: Set architecture
-        run: |
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            echo "ARCH_FLAGS=-arch arm64" >> $GITHUB_ENV
-            echo "ARCH_NAME=arm64" >> $GITHUB_ENV
-          else
-            echo "ARCH_FLAGS=-arch x86_64" >> $GITHUB_ENV
-            echo "ARCH_NAME=x86_64" >> $GITHUB_ENV
-          fi
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: dep
-          key: ${{ runner.os }}-${{ matrix.arch }}-deps-${{ hashFiles('dep.mk', 'dep/Makefile') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-deps-
-
-      - name: Build dependencies
-        run: make dep -j$(sysctl -n hw.ncpu)
-        env:
-          CFLAGS: ${{ env.ARCH_FLAGS }}
-          CXXFLAGS: ${{ env.ARCH_FLAGS }}
-          LDFLAGS: ${{ env.ARCH_FLAGS }}
-
-      - name: Build CLI client
-        run: make cli -j$(sysctl -n hw.ncpu)
-        env:
-          CXXFLAGS: ${{ env.ARCH_FLAGS }}
-          LDFLAGS: ${{ env.ARCH_FLAGS }}
-
-      - name: Verify binary
-        run: |
-          ls -lh tools/rack-cli
-          file tools/rack-cli
-          otool -L tools/rack-cli || true
-          ./tools/rack-cli --help
-
-      - name: Create archive
-        run: |
-          mkdir -p release
-          cp tools/rack-cli release/
-          cp tools/README.md release/
-          cp tools/test-cli.sh release/
-          tar -czf rack-cli-macos-${{ env.ARCH_NAME }}.tar.gz -C release .
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rack-cli-macos-${{ env.ARCH_NAME }}
-          path: rack-cli-macos-${{ env.ARCH_NAME }}.tar.gz
-          retention-days: 30
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./rack-cli-macos-${{ env.ARCH_NAME }}.tar.gz
-          asset_name: rack-cli-macos-${{ env.ARCH_NAME }}.tar.gz
-          asset_content_type: application/gzip
-
-  build-windows:
-    name: Build for Windows
-    runs-on: windows-latest
-
-    defaults:
-      run:
-        shell: msys2 {0}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            git
-            wget
-            tar
-            unzip
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-make
-            mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-jq
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: dep
-          key: ${{ runner.os }}-deps-${{ hashFiles('dep.mk', 'dep/Makefile') }}
-          restore-keys: |
-            ${{ runner.os }}-deps-
-
-      - name: Build dependencies
-        run: make dep -j$(nproc)
-
-      - name: Build CLI client
-        run: make cli -j$(nproc)
-
-      - name: Verify binary
-        run: |
-          ls -lh tools/rack-cli.exe
-          file tools/rack-cli.exe
-          ldd tools/rack-cli.exe || true
-          ./tools/rack-cli.exe --help
-
-      - name: Create archive
-        run: |
-          mkdir -p release
-          cp tools/rack-cli.exe release/
-          cp tools/README.md release/
-          # Copy required DLLs
-          cp /mingw64/bin/libgcc_s_seh-1.dll release/ || true
-          cp /mingw64/bin/libstdc++-6.dll release/ || true
-          cp /mingw64/bin/libwinpthread-1.dll release/ || true
-          cd release
-          zip -r ../rack-cli-windows-x64.zip .
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rack-cli-windows-x64
-          path: rack-cli-windows-x64.zip
-          retention-days: 30
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./rack-cli-windows-x64.zip
-          asset_name: rack-cli-windows-x64.zip
-          asset_content_type: application/zip
 
   test-cli:
     name: Test CLI Client
@@ -276,34 +170,35 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Download Linux binary
+      - name: Download Linux build
         uses: actions/download-artifact@v4
         with:
-          name: rack-cli-linux-x64
+          name: vcv-rack-linux-x64
 
-      - name: Extract binary
+      - name: Extract build
         run: |
-          tar -xzf rack-cli-linux-x64.tar.gz
-          chmod +x rack-cli
+          tar -xzf vcv-rack-linux-x64.tar.gz
+          chmod +x Rack rack-cli
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
+      - name: Install runtime dependencies
         run: |
-          chmod +x docker-build.sh
-          ./docker-build.sh build-image
-
-      - name: Build dependencies
-        run: ./docker-build.sh deps -j4
-
-      - name: Build VCV Rack
-        run: ./docker-build.sh build -j4
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1 \
+            libx11-6 \
+            libasound2 \
+            libjack0 \
+            libpulse0 \
+            xvfb \
+            curl \
+            jq
 
       - name: Start Rack with HTTP API
         run: |
-          # Start Rack in background
-          ./docker-build.sh run &
+          # Start Rack in background with virtual display
+          Xvfb :99 -screen 0 1024x768x24 &
+          export DISPLAY=:99
+          ./Rack --httpapi &
           RACK_PID=$!
           echo "RACK_PID=$RACK_PID" >> $GITHUB_ENV
 
@@ -333,10 +228,19 @@ jobs:
             -d '{"pluginSlug":"Fundamental","modelSlug":"VCF","pos":{"x":100,"y":0}}' \
             | jq -r '.id')
 
-          # Create cable
+          VCA_ID=$(curl -sf -X POST http://localhost:8080/api/modules \
+            -H "Content-Type: application/json" \
+            -d '{"pluginSlug":"Fundamental","modelSlug":"VCA-1","pos":{"x":200,"y":0}}' \
+            | jq -r '.id')
+
+          # Create cables
           curl -sf -X POST http://localhost:8080/api/cables \
             -H "Content-Type: application/json" \
             -d "{\"outputModuleId\":$VCO_ID,\"outputId\":0,\"inputModuleId\":$VCF_ID,\"inputId\":0}"
+
+          curl -sf -X POST http://localhost:8080/api/cables \
+            -H "Content-Type: application/json" \
+            -d "{\"outputModuleId\":$VCF_ID,\"outputId\":0,\"inputModuleId\":$VCA_ID,\"inputId\":0}"
 
           echo "Test patch created successfully"
 
@@ -377,6 +281,15 @@ jobs:
 
       - name: Test list-connections with sorting
         run: |
+          echo "Testing list-connections --sort-by module..."
+          ./rack-cli list-connections --sort-by module
+          if [ $? -eq 0 ]; then
+            echo "✓ list-connections --sort-by module test passed"
+          else
+            echo "✗ list-connections --sort-by module test failed"
+            exit 1
+          fi
+
           echo "Testing list-connections --sort-by type..."
           ./rack-cli list-connections --sort-by type
           if [ $? -eq 0 ]; then
@@ -389,61 +302,7 @@ jobs:
       - name: Stop Rack
         if: always()
         run: |
-          docker-compose down -v || true
-
-  create-release-summary:
-    name: Create Release Summary
-    needs: [build-linux, build-macos, build-windows]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Create release notes
-        run: |
-          cat > release-notes.md << 'EOF'
-          # VCV Rack CLI Client
-
-          Command-line interface for interacting with the VCV Rack HTTP API.
-
-          ## Downloads
-
-          - **Linux (x64)**: `rack-cli-linux-x64.tar.gz`
-          - **macOS (x86_64)**: `rack-cli-macos-x86_64.tar.gz`
-          - **macOS (ARM64)**: `rack-cli-macos-arm64.tar.gz`
-          - **Windows (x64)**: `rack-cli-windows-x64.zip`
-
-          ## Features
-
-          - `list-modules` - List all modules in the current patch
-          - `show-module <id>` - Show detailed module information including parameters and connections
-          - `list-connections` - List all cable connections with sorting options
-
-          ## Quick Start
-
-          1. Extract the archive for your platform
-          2. Start VCV Rack with HTTP API: `./Rack --httpapi`
-          3. Run the CLI client: `./rack-cli list-modules`
-
-          For full documentation, see the included `README.md` or visit the repository.
-
-          ## Building from Source
-
-          ```bash
-          make dep  # Build dependencies
-          make cli  # Build CLI client
-          ```
-
-          See `tools/README.md` for detailed build instructions.
-          EOF
-
-          cat release-notes.md
-
-      - name: Upload release notes
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-notes
-          path: release-notes.md
-          retention-days: 30
+          if [ -n "$RACK_PID" ]; then
+            kill $RACK_PID 2>/dev/null || true
+          fi
+          pkill Rack || true
