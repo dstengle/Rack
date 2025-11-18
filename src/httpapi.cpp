@@ -81,7 +81,7 @@ struct HttpResponse {
 };
 
 
-static void sendResponse(socket_t client, const HttpResponse& response) {
+static void sendResponse(socket_t client, HttpResponse& response) {
 	std::string responseStr = response.toString();
 	send(client, responseStr.c_str(), (int)responseStr.length(), 0);
 }
