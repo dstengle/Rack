@@ -119,26 +119,26 @@ jobs:
           cp README.md release/
           # Create README for the release
           cat > release/README.txt << 'EOF'
-VCV Rack Linux Build with CLI Client
-=====================================
+          VCV Rack Linux Build with CLI Client
+          =====================================
 
-This archive contains:
-- Rack: VCV Rack standalone application
-- libRack.so: VCV Rack shared library
-- rack-cli: CLI client for HTTP API
-- res/: Resources (fonts, components, etc.)
-- presets/: Module presets
-- translations/: i18n files
+          This archive contains:
+          - Rack: VCV Rack standalone application
+          - libRack.so: VCV Rack shared library
+          - rack-cli: CLI client for HTTP API
+          - res/: Resources (fonts, components, etc.)
+          - presets/: Module presets
+          - translations/: i18n files
 
-Quick Start:
-1. Extract this archive
-2. Run Rack with HTTP API: ./Rack --httpapi
-3. In another terminal, use CLI: ./rack-cli list-modules
+          Quick Start:
+          1. Extract this archive
+          2. Run Rack with HTTP API: ./Rack --httpapi
+          3. In another terminal, use CLI: ./rack-cli list-modules
 
-For CLI client documentation, see CLI-README.md
-For Rack documentation, see README.md
+          For CLI client documentation, see CLI-README.md
+          For Rack documentation, see README.md
 
-EOF
+          EOF
           tar -czf vcv-rack-linux-x64.tar.gz -C release .
 
       - name: Upload artifact
