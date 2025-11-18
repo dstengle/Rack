@@ -59,7 +59,7 @@ struct HttpRequest {
 struct HttpResponse {
 	int statusCode = 200;
 	std::string statusText = "OK";
-	std::map<std::string, std::string> headers;
+	mutable std::map<std::string, std::string> headers;
 	std::string body;
 
 	HttpResponse() {
@@ -67,7 +67,7 @@ struct HttpResponse {
 		headers["Access-Control-Allow-Origin"] = "*";
 	}
 
-	std::string toString() {
+	std::string toString() const {
 		std::ostringstream ss;
 		ss << "HTTP/1.1 " << statusCode << " " << statusText << "\r\n";
 		headers["Content-Length"] = std::to_string(body.length());
@@ -291,7 +291,7 @@ static void handleGetModuleDetails(socket_t client, int64_t moduleId) {
 		if (i < module->paramQuantities.size() && module->paramQuantities[i]) {
 			engine::ParamQuantity* pq = module->paramQuantities[i];
 			json_object_set_new(paramJ, "name", json_string(pq->name.c_str()));
-			json_object_set_new(paramJ, "label", json_string(pq->label.c_str()));
+			json_object_set_new(paramJ, "label", json_string(pq->getLabel().c_str()));
 			json_object_set_new(paramJ, "unit", json_string(pq->unit.c_str()));
 			json_object_set_new(paramJ, "minValue", json_real(pq->minValue));
 			json_object_set_new(paramJ, "maxValue", json_real(pq->maxValue));
