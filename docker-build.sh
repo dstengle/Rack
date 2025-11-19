@@ -87,7 +87,7 @@ build_deps() {
 build_rack() {
     local jobs="${1:-4}"
     info "Building VCV Rack with $jobs parallel jobs..."
-    docker-compose run --rm rack-build bash -c "make all -j$jobs"
+    docker-compose run --rm rack-build bash -c "make all -j$jobs RACK_VERSION=2.6.6"
     success "VCV Rack built successfully"
 }
 

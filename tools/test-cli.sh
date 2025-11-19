@@ -11,7 +11,7 @@ set -e
 
 # Configuration
 RACK_BINARY="${RACK_BINARY:-./Rack}"
-CLI_BINARY="${CLI_BINARY:-./tools/rack-cli}"
+CLI_BINARY="${CLI_BINARY:-./rack-cli}"
 API_PORT="${API_PORT:-8080}"
 API_HOST="${API_HOST:-localhost}"
 API_BASE="http://${API_HOST}:${API_PORT}"
@@ -52,7 +52,8 @@ check_binaries() {
 
     if [ ! -f "$CLI_BINARY" ]; then
         log_error "CLI binary not found at $CLI_BINARY"
-        log_info "Build it with: make cli"
+        log_info "Build it with: make cli (creates tools/rack-cli)"
+        log_info "Or set CLI_BINARY environment variable to the correct path"
         exit 1
     fi
 

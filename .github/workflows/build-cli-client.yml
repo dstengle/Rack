@@ -49,7 +49,7 @@ jobs:
             libxcursor-dev \
             libxi-dev \
             zlib1g-dev \
-            libasound2-dev \
+            libasound2t64-dev \
             libjack-jackd2-dev \
             libpulse-dev \
             cmake \
@@ -72,10 +72,10 @@ jobs:
         run: make dep -j$(nproc)
 
       - name: Build VCV Rack
-        run: make all -j$(nproc)
+        run: make all -j$(nproc) RACK_VERSION=2.6.6
 
       - name: Build CLI client
-        run: make cli -j$(nproc)
+        run: make cli -j$(nproc) RACK_VERSION=2.6.6
 
       - name: Verify binaries
         run: |
@@ -83,6 +83,9 @@ jobs:
           ls -lh Rack
           file Rack
           ldd Rack || true
+          echo ""
+          echo "=== Rack Version ==="
+          strings Rack | grep -E '^2\.[0-9]+\.[0-9]+$' || echo "Version string not found"
           echo ""
           echo "=== libRack.so ==="
           ls -lh libRack.so
@@ -186,7 +189,7 @@ jobs:
           sudo apt-get install -y \
             libgl1 \
             libx11-6 \
-            libasound2 \
+            libasound2t64 \
             libjack0 \
             libpulse0 \
             xvfb \
