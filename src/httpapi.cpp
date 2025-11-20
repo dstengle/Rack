@@ -45,6 +45,7 @@ static std::thread serverThread;
 static std::atomic<bool> running{false};
 static socket_t serverSocket = INVALID_SOCKET_VALUE;
 static int serverPort = 8080;
+static Context* mainContext = NULL;
 
 
 struct HttpRequest {
@@ -643,6 +644,9 @@ static void handleRequest(socket_t client, const HttpRequest& request) {
 
 
 static void handleClient(socket_t client) {
+	// Set the context for this thread so APP macro works
+	contextSet(mainContext);
+	
 	char buffer[8192];
 	int bytesReceived = recv(client, buffer, sizeof(buffer) - 1, 0);
 
@@ -689,6 +693,9 @@ void init(int port) {
 		return;
 	}
 
+	// Store the main thread's context so handler threads can use it
+	mainContext = contextGet();
+	
 	serverPort = port;
 
 #ifdef ARCH_WIN
