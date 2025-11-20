@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     libxinerama-dev \
     libxcursor-dev \
     libxi-dev \
-    libasound2t64-dev \
+    libasound2-dev \
     libjack-jackd2-dev \
     libpulse-dev \
     libgl1-mesa-dev \
@@ -61,7 +61,7 @@ RUN useradd -m -s /bin/bash builder && \
 WORKDIR /workspace
 
 # Switch to builder user
-USER builder
+# USER builder
 
 # Set environment variables for build
 ENV RACK_DIR=/workspace

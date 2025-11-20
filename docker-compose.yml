@@ -13,7 +13,6 @@ services:
       - .:/workspace
       # Persist build cache
       - rack-build-cache:/workspace/build
-      - rack-dep-cache:/workspace/dep
     environment:
       - RACK_DIR=/workspace
     # Keep container running for interactive use
@@ -36,7 +35,6 @@ services:
     volumes:
       - .:/workspace
       - rack-dev-build-cache:/workspace/build
-      - rack-dev-dep-cache:/workspace/dep
     environment:
       - RACK_DIR=/workspace
     stdin_open: true
@@ -51,9 +49,5 @@ volumes:
   # Named volumes to persist build artifacts
   rack-build-cache:
     driver: local
-  rack-dep-cache:
-    driver: local
   rack-dev-build-cache:
-    driver: local
-  rack-dev-dep-cache:
     driver: local
