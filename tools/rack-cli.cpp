@@ -50,6 +50,58 @@ HttpResponse httpGet(const std::string& url) {
 	return response;
 }
 
+// Make HTTP POST request
+HttpResponse httpPost(const std::string& url, const std::string& jsonBody) {
+	HttpResponse response;
+	CURL* curl = curl_easy_init();
+
+	if (curl) {
+		struct curl_slist* headers = NULL;
+		headers = curl_slist_append(headers, "Content-Type: application/json");
+
+		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+		curl_easy_setopt(curl, CURLOPT_POST, 1L);
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+		CURLcode res = curl_easy_perform(curl);
+		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
+
+		response.success = (res == CURLE_OK && (response.statusCode == 200 || response.statusCode == 201));
+		
+		curl_slist_free_all(headers);
+		curl_easy_cleanup(curl);
+	}
+
+	return response;
+}
+
+// Make HTTP DELETE request
+HttpResponse httpDelete(const std::string& url) {
+	HttpResponse response;
+	CURL* curl = curl_easy_init();
+
+	if (curl) {
+		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+		curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+		CURLcode res = curl_easy_perform(curl);
+		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
+
+		response.success = (res == CURLE_OK && response.statusCode == 200);
+		curl_easy_cleanup(curl);
+	}
+
+	return response;
+}
+
+
 // Parse JSON response
 json_t* parseJson(const HttpResponse& response) {
 	if (!response.success) {
@@ -676,6 +728,59 @@ int cmdListConnections(const std::string& sortBy) {
 	return 0;
 }
 
+// Command: add-cable
+int cmdAddCable(int64_t fromModuleId, int fromPortId, int64_t toModuleId, int toPortId) {
+	std::cout << "Creating cable from module " << fromModuleId << " port " << fromPortId
+	          << " to module " << toModuleId << " port " << toPortId << "..." << std::endl << std::endl;
+
+	// Build JSON request
+	std::ostringstream jsonBody;
+	jsonBody << "{"
+	         << "\"outputModuleId\":" << fromModuleId << ","
+	         << "\"outputId\":" << fromPortId << ","
+	         << "\"inputModuleId\":" << toModuleId << ","
+	         << "\"inputId\":" << toPortId
+	         << "}";
+
+	HttpResponse response = httpPost(API_BASE + "/api/cables", jsonBody.str());
+	json_t* root = parseJson(response);
+	if (!root) return 1;
+
+	// Extract cable ID from response
+	json_t* cableIdJ = json_object_get(root, "id");
+	if (cableIdJ) {
+		int64_t cableId = json_integer_value(cableIdJ);
+		std::cout << "✓ Cable created successfully!" << std::endl;
+		std::cout << "  Cable ID: " << cableId << std::endl;
+		std::cout << "  From: Module " << fromModuleId << ", Port " << fromPortId << std::endl;
+		std::cout << "  To:   Module " << toModuleId << ", Port " << toPortId << std::endl;
+	}
+
+	json_decref(root);
+	return 0;
+}
+
+// Command: remove-cable
+int cmdRemoveCable(int64_t cableId) {
+	std::cout << "Removing cable " << cableId << "..." << std::endl << std::endl;
+
+	HttpResponse response = httpDelete(API_BASE + "/api/cables/" + std::to_string(cableId));
+	json_t* root = parseJson(response);
+	if (!root) return 1;
+
+	// Check success
+	json_t* successJ = json_object_get(root, "success");
+	if (successJ && json_is_true(successJ)) {
+		std::cout << "✓ Cable " << cableId << " removed successfully!" << std::endl;
+	} else {
+		std::cout << "Failed to remove cable " << cableId << std::endl;
+	}
+
+	json_decref(root);
+	return 0;
+}
+
+
 // Print usage
 void printUsage(const char* progName) {
 	std::cout << "VCV Rack CLI Client - Command-line interface for VCV Rack HTTP API" << std::endl;
@@ -690,16 +795,25 @@ void printUsage(const char* progName) {
 	std::cout << "Commands:" << std::endl;
 	std::cout << "  list-modules        List all modules in the current patch" << std::endl;
 	std::cout << "  show-module <id>    Show detailed information about a module" << std::endl;
-	std::cout << "  list-connections    List all connections (cables) in the patch" << std::endl;
-	std::cout << "    --sort-by module  Sort connections by module ID" << std::endl;
-	std::cout << "    --sort-by type    Sort connections by type (audio/CV)" << std::endl;
+	std::cout << "  list-cables         List all cables in the patch" << std::endl;
+	std::cout << "    --sort-by module  Sort cables by module ID" << std::endl;
+	std::cout << "    --sort-by type    Sort cables by type (audio/CV)" << std::endl;
+	std::cout << "  add-cable           Create a cable between two modules" << std::endl;
+	std::cout << "    --from-module <id> --from-port <id> --to-module <id> --to-port <id>" << std::endl;
+	std::cout << "  remove-cable <id>   Remove a cable by its ID" << std::endl;
+	std::cout << std::endl;
+	std::cout << "Aliases:" << std::endl;
+	std::cout << "  list-connections    Alias for list-cables (deprecated)" << std::endl;
 	std::cout << std::endl;
 	std::cout << "Examples:" << std::endl;
 	std::cout << "  " << progName << " list-modules" << std::endl;
 	std::cout << "  " << progName << " show-module 1" << std::endl;
-	std::cout << "  " << progName << " list-connections" << std::endl;
-	std::cout << "  " << progName << " list-connections --sort-by type" << std::endl;
+	std::cout << "  " << progName << " list-cables" << std::endl;
+	std::cout << "  " << progName << " list-cables --sort-by type" << std::endl;
+	std::cout << "  " << progName << " add-cable --from-module 1 --from-port 0 --to-module 2 --to-port 0" << std::endl;
+	std::cout << "  " << progName << " remove-cable 100" << std::endl;
 	std::cout << "  " << progName << " --port 9000 list-modules" << std::endl;
+
 	std::cout << std::endl;
 }
 
@@ -763,7 +877,7 @@ int main(int argc, char* argv[]) {
 		} else {
 			result = cmdShowModule(args[1]);
 		}
-	} else if (command == "list-connections") {
+	} else if (command == "list-cables" || command == "list-connections") {
 		std::string sortBy = "";
 		if (args.size() >= 3 && args[1] == "--sort-by") {
 			sortBy = args[2];
@@ -776,9 +890,41 @@ int main(int argc, char* argv[]) {
 		} else {
 			result = cmdListConnections("");
 		}
+	} else if (command == "add-cable") {
+		// Parse arguments
+		int64_t fromModule = -1, toModule = -1;
+		int fromPort = -1, toPort = -1;
+		
+		for (size_t i = 1; i < args.size(); i++) {
+			if (args[i] == "--from-module" && i + 1 < args.size()) {
+				fromModule = std::stoll(args[++i]);
+			} else if (args[i] == "--from-port" && i + 1 < args.size()) {
+				fromPort = std::stoi(args[++i]);
+			} else if (args[i] == "--to-module" && i + 1 < args.size()) {
+				toModule = std::stoll(args[++i]);
+			} else if (args[i] == "--to-port" && i + 1 < args.size()) {
+				toPort = std::stoi(args[++i]);
+			}
+		}
+		
+		if (fromModule == -1 || fromPort == -1 || toModule == -1 || toPort == -1) {
+			std::cerr << "Error: add-cable requires --from-module, --from-port, --to-module, and --to-port" << std::endl;
+			result = 1;
+		} else {
+			result = cmdAddCable(fromModule, fromPort, toModule, toPort);
+		}
+	} else if (command == "remove-cable") {
+		if (args.size() < 2) {
+			std::cerr << "Error: remove-cable requires a cable ID" << std::endl;
+			result = 1;
+		} else {
+			int64_t cableId = std::stoll(args[1]);
+			result = cmdRemoveCable(cableId);
+		}
 	} else {
 		std::cerr << "Error: Unknown command '" << command << "'" << std::endl;
 		std::cerr << "Use --help for usage information" << std::endl;
+
 		result = 1;
 	}
 
