@@ -38,8 +38,10 @@ Usage: $0 <command> [options]
 Commands:
     build-image         Build the Docker image
     shell              Open a shell in the build container
+    exec <cmd>         Execute a command in the build container
     deps               Build dependencies only
     build              Build VCV Rack (libRack.so + Rack binary)
+    build-cli          Build the Rack CLI tool
     clean              Clean build artifacts
     cleandep           Clean dependencies
     run                Run VCV Rack with HTTP API
@@ -55,6 +57,7 @@ Examples:
     $0 build-image           # Build the Docker image
     $0 deps                  # Build dependencies
     $0 build                 # Build VCV Rack
+    $0 build-cli             # Build Rack CLI
     $0 full                  # Build deps + rack
     $0 run --port 9000       # Run with API on port 9000
     $0 shell                 # Open interactive shell
@@ -64,7 +67,9 @@ EOF
 
 # Build Docker image
 build_image() {
-    info "Building Docker image..."
+    info "Building Docker image with USER_ID=$(id -u) and GROUP_ID=$(id -g)..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose build rack-build
     success "Docker image built successfully"
 }
@@ -72,13 +77,26 @@ build_image() {
 # Open shell in container
 open_shell() {
     info "Opening shell in build container..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose run --rm rack-build /bin/bash
+}
+
+# Execute command in container
+exec_command() {
+    local cmd="$@"
+    info "Executing command in build container: $cmd"
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
+    docker-compose run --rm rack-build bash -c "$cmd"
 }
 
 # Build dependencies
 build_deps() {
     local jobs="${1:-4}"
     info "Building dependencies with $jobs parallel jobs..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose run --rm rack-build bash -c "make dep -j$jobs"
     success "Dependencies built successfully"
 }
@@ -87,13 +105,26 @@ build_deps() {
 build_rack() {
     local jobs="${1:-4}"
     info "Building VCV Rack with $jobs parallel jobs..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose run --rm rack-build bash -c "make all -j$jobs RACK_VERSION=2.6.6"
     success "VCV Rack built successfully"
+}
+
+# Build Rack CLI
+build_cli() {
+    info "Building Rack CLI..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
+    docker-compose run --rm rack-build bash -c "make cli"
+    success "Rack CLI built successfully"
 }
 
 # Clean build artifacts
 clean_build() {
     info "Cleaning build artifacts..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose run --rm rack-build make clean
     success "Build artifacts cleaned"
 }
@@ -105,6 +136,8 @@ clean_deps() {
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         info "Cleaning dependencies..."
+        export USER_ID=$(id -u)
+        export GROUP_ID=$(id -g)
         docker-compose run --rm rack-build make cleandep
         success "Dependencies cleaned"
     else
@@ -117,6 +150,8 @@ run_rack() {
     local port="${1:-8080}"
     info "Running VCV Rack with HTTP API on port $port..."
     info "Press Ctrl+C to stop"
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose run --rm --service-ports rack-build bash -c "./Rack --httpapi=$port"
 }
 
@@ -128,15 +163,18 @@ test_api() {
         error "Python 3 is required for API testing"
         exit 1
     fi
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
     docker-compose run --rm rack-build python3 test_http_api.py --port "$port"
 }
 
 # Full build (deps + rack)
 full_build() {
     local jobs="${1:-4}"
-    info "Starting full build (dependencies + rack)..."
+    info "Starting full build (dependencies + rack + cli)..."
     build_deps "$jobs"
     build_rack "$jobs"
+    build_cli
     success "Full build completed successfully"
 }
 
@@ -147,9 +185,15 @@ JOBS="4"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        build-image|shell|deps|build|clean|cleandep|run|test-api|full|help)
+        build-image|shell|deps|build|build-cli|clean|cleandep|run|test-api|full|help)
             COMMAND="$1"
             shift
+            ;;
+        exec)
+            COMMAND="$1"
+            shift
+            EXEC_ARGS="$@"
+            break
             ;;
         -p|--port)
             PORT="$2"
@@ -187,11 +231,17 @@ case $COMMAND in
     shell)
         open_shell
         ;;
+    exec)
+        exec_command "$EXEC_ARGS"
+        ;;
     deps)
         build_deps "$JOBS"
         ;;
     build)
         build_rack "$JOBS"
+        ;;
+    build-cli)
+        build_cli
         ;;
     clean)
         clean_build

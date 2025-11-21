@@ -16,6 +16,7 @@
 /Rack
 /dep
 /dist
+/tools/rack-cli
 
 # Rack folders
 /plugins
