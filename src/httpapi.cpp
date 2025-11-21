@@ -417,7 +417,10 @@ static void handlePostModule(socket_t client, const std::string& body) {
 		}
 	}
 
-	// Add to rack
+	// Add module to engine first (this assigns the module ID)
+	APP->engine->addModule(module);
+
+	// Then add widget to rack
 	APP->scene->rack->addModule(moduleWidget);
 
 	json_decref(requestJ);
