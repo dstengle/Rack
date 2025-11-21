@@ -52,8 +52,16 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     requests \
     jsonschema
 
-# Create build user (non-root for security)
-RUN useradd -m -s /bin/bash builder && \
+# Accept user ID and group ID as build arguments to match host user
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+# Create build user with matching UID/GID (non-root for security)
+# First remove default ubuntu user if it exists to avoid UID/GID conflicts
+RUN if getent passwd ubuntu >/dev/null; then userdel -r ubuntu; fi && \
+    if getent group ubuntu >/dev/null; then groupdel ubuntu; fi && \
+    groupadd -g ${GROUP_ID} builder && \
+    useradd -m -u ${USER_ID} -g ${GROUP_ID} -s /bin/bash builder && \
     mkdir -p /workspace && \
     chown -R builder:builder /workspace
 
@@ -61,7 +69,7 @@ RUN useradd -m -s /bin/bash builder && \
 WORKDIR /workspace
 
 # Switch to builder user
-# USER builder
+USER builder
 
 # Set environment variables for build
 ENV RACK_DIR=/workspace
