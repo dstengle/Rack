@@ -781,6 +781,179 @@ int cmdRemoveCable(int64_t cableId) {
 }
 
 
+// Command: list-plugins
+int cmdListPlugins() {
+	std::cout << "Fetching plugins from " << API_BASE << "..." << std::endl << std::endl;
+
+	HttpResponse response = httpGet(API_BASE + "/api/plugins");
+	json_t* root = parseJson(response);
+	if (!root) return 1;
+
+	// Extract plugins array from response object
+	json_t* pluginsArray = json_object_get(root, "plugins");
+	if (!pluginsArray || !json_is_array(pluginsArray)) {
+		std::cerr << "Error: Invalid response format (expected 'plugins' array)" << std::endl;
+		json_decref(root);
+		return 1;
+	}
+
+	size_t numPlugins = json_array_size(pluginsArray);
+	std::cout << "Found " << numPlugins << " plugin(s):" << std::endl << std::endl;
+
+	// Table headers
+	std::vector<int> widths = {25, 25, 12, 10};
+	std::vector<std::string> headers = {"Plugin", "Brand", "Version", "Models"};
+
+	printSeparator(widths);
+	printRow(headers, widths);
+	printSeparator(widths);
+
+	// Print each plugin
+	for (size_t i = 0; i < numPlugins; i++) {
+		json_t* plugin = json_array_get(pluginsArray, i);
+
+		json_t* slugJ = json_object_get(plugin, "slug");
+		json_t* nameJ = json_object_get(plugin, "name");
+		json_t* brandJ = json_object_get(plugin, "brand");
+		json_t* versionJ = json_object_get(plugin, "version");
+		json_t* modelsJ = json_object_get(plugin, "models");
+
+		std::ostringstream slug, brand, version, models;
+
+		if (slugJ) slug << json_string_value(slugJ);
+		if (brandJ) brand << json_string_value(brandJ);
+		else if (nameJ) brand << json_string_value(nameJ);
+		if (versionJ) version << json_string_value(versionJ);
+		if (modelsJ && json_is_array(modelsJ)) {
+			models << json_array_size(modelsJ);
+		}
+
+		std::vector<std::string> row = {
+			slug.str(), brand.str(), version.str(), models.str()
+		};
+		printRow(row, widths);
+	}
+
+	printSeparator(widths);
+
+	json_decref(root);
+	return 0;
+}
+
+// Command: list-models [plugin-slug]
+int cmdListModels(const std::string& pluginSlug) {
+	std::cout << "Fetching models from " << API_BASE << "..." << std::endl << std::endl;
+
+	HttpResponse response = httpGet(API_BASE + "/api/plugins");
+	json_t* root = parseJson(response);
+	if (!root) return 1;
+
+	// Extract plugins array from response object
+	json_t* pluginsArray = json_object_get(root, "plugins");
+	if (!pluginsArray || !json_is_array(pluginsArray)) {
+		std::cerr << "Error: Invalid response format (expected 'plugins' array)" << std::endl;
+		json_decref(root);
+		return 1;
+	}
+
+	// Collect all models
+	std::vector<std::tuple<std::string, std::string, std::string, std::string>> allModels;
+
+	for (size_t i = 0; i < json_array_size(pluginsArray); i++) {
+		json_t* plugin = json_array_get(pluginsArray, i);
+		json_t* pluginSlugJ = json_object_get(plugin, "slug");
+		json_t* brandJ = json_object_get(plugin, "brand");
+		json_t* modelsJ = json_object_get(plugin, "models");
+
+		if (!pluginSlugJ || !modelsJ || !json_is_array(modelsJ)) continue;
+
+		std::string pSlug = json_string_value(pluginSlugJ);
+		std::string brand = brandJ ? json_string_value(brandJ) : pSlug;
+
+		// Filter by plugin if specified
+		if (!pluginSlug.empty() && pSlug != pluginSlug) continue;
+
+		for (size_t j = 0; j < json_array_size(modelsJ); j++) {
+			json_t* model = json_array_get(modelsJ, j);
+			json_t* modelSlugJ = json_object_get(model, "slug");
+			json_t* nameJ = json_object_get(model, "name");
+			json_t* descJ = json_object_get(model, "description");
+
+			std::string modelSlug = modelSlugJ ? json_string_value(modelSlugJ) : "";
+			std::string name = nameJ ? json_string_value(nameJ) : modelSlug;
+			std::string desc = descJ ? json_string_value(descJ) : "";
+
+			allModels.push_back(std::make_tuple(pSlug, brand, name, desc));
+		}
+	}
+
+	if (allModels.empty()) {
+		if (pluginSlug.empty()) {
+			std::cout << "No models found." << std::endl;
+		} else {
+			std::cout << "No models found for plugin '" << pluginSlug << "'." << std::endl;
+		}
+		json_decref(root);
+		return 0;
+	}
+
+	std::cout << "Found " << allModels.size() << " model(s)";
+	if (!pluginSlug.empty()) {
+		std::cout << " in plugin '" << pluginSlug << "'";
+	}
+	std::cout << ":" << std::endl << std::endl;
+
+	// Table headers
+	std::vector<int> widths = {20, 20, 25, 40};
+	std::vector<std::string> headers = {"Plugin", "Brand", "Model", "Description"};
+
+	printSeparator(widths);
+	printRow(headers, widths);
+	printSeparator(widths);
+
+	// Print each model
+	for (const auto& modelTuple : allModels) {
+		std::vector<std::string> row = {
+			std::get<0>(modelTuple),
+			std::get<1>(modelTuple),
+			std::get<2>(modelTuple),
+			std::get<3>(modelTuple)
+		};
+		printRow(row, widths);
+	}
+
+	printSeparator(widths);
+
+	json_decref(root);
+	return 0;
+}
+
+// Command: get <endpoint>
+int cmdGet(const std::string& endpoint) {
+	// Ensure endpoint starts with /
+	std::string path = endpoint;
+	if (path.empty() || path[0] != '/') {
+		path = "/" + path;
+	}
+
+	std::string url = API_BASE + path;
+	std::cout << "GET " << url << std::endl << std::endl;
+
+	HttpResponse response = httpGet(url);
+
+	if (response.success) {
+		std::cout << response.body << std::endl;
+		return 0;
+	} else {
+		std::cerr << "Error: HTTP request failed (status " << response.statusCode << ")" << std::endl;
+		if (!response.body.empty()) {
+			std::cerr << "Response: " << response.body << std::endl;
+		}
+		return 1;
+	}
+}
+
+
 // Print usage
 void printUsage(const char* progName) {
 	std::cout << "VCV Rack CLI Client - Command-line interface for VCV Rack HTTP API" << std::endl;
@@ -793,6 +966,8 @@ void printUsage(const char* progName) {
 	std::cout << "  --help, -h          Show this help message" << std::endl;
 	std::cout << std::endl;
 	std::cout << "Commands:" << std::endl;
+	std::cout << "  list-plugins        List all installed plugins" << std::endl;
+	std::cout << "  list-models [slug]  List all models (optionally filter by plugin slug)" << std::endl;
 	std::cout << "  list-modules        List all modules in the current patch" << std::endl;
 	std::cout << "  show-module <id>    Show detailed information about a module" << std::endl;
 	std::cout << "  list-cables         List all cables in the patch" << std::endl;
@@ -801,18 +976,23 @@ void printUsage(const char* progName) {
 	std::cout << "  add-cable           Create a cable between two modules" << std::endl;
 	std::cout << "    --from-module <id> --from-port <id> --to-module <id> --to-port <id>" << std::endl;
 	std::cout << "  remove-cable <id>   Remove a cable by its ID" << std::endl;
+	std::cout << "  get <endpoint>      Make a raw GET request to an API endpoint" << std::endl;
 	std::cout << std::endl;
 	std::cout << "Aliases:" << std::endl;
 	std::cout << "  list-connections    Alias for list-cables (deprecated)" << std::endl;
 	std::cout << std::endl;
 	std::cout << "Examples:" << std::endl;
+	std::cout << "  " << progName << " list-plugins" << std::endl;
+	std::cout << "  " << progName << " list-models" << std::endl;
+	std::cout << "  " << progName << " list-models Fundamental" << std::endl;
 	std::cout << "  " << progName << " list-modules" << std::endl;
 	std::cout << "  " << progName << " show-module 1" << std::endl;
 	std::cout << "  " << progName << " list-cables" << std::endl;
 	std::cout << "  " << progName << " list-cables --sort-by type" << std::endl;
 	std::cout << "  " << progName << " add-cable --from-module 1 --from-port 0 --to-module 2 --to-port 0" << std::endl;
 	std::cout << "  " << progName << " remove-cable 100" << std::endl;
-	std::cout << "  " << progName << " --port 9000 list-modules" << std::endl;
+	std::cout << "  " << progName << " get /api/plugins" << std::endl;
+	std::cout << "  " << progName << " --port 9000 list-plugins" << std::endl;
 
 	std::cout << std::endl;
 }
@@ -868,7 +1048,22 @@ int main(int argc, char* argv[]) {
 	std::string command = args[0];
 	int result = 0;
 
-	if (command == "list-modules") {
+	if (command == "list-plugins") {
+		result = cmdListPlugins();
+	} else if (command == "list-models") {
+		if (args.size() >= 2) {
+			result = cmdListModels(args[1]);
+		} else {
+			result = cmdListModels("");
+		}
+	} else if (command == "get") {
+		if (args.size() < 2) {
+			std::cerr << "Error: get requires an endpoint" << std::endl;
+			result = 1;
+		} else {
+			result = cmdGet(args[1]);
+		}
+	} else if (command == "list-modules") {
 		result = cmdListModules();
 	} else if (command == "show-module") {
 		if (args.size() < 2) {
