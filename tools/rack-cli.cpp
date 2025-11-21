@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <limits>
 #include <curl/curl.h>
 #include <jansson.h>
 
@@ -780,6 +781,140 @@ int cmdRemoveCable(int64_t cableId) {
 	return 0;
 }
 
+// Command: add-module
+int cmdAddModule(const std::string& pluginSlug, const std::string& modelSlug, double x, double y, bool positionSpecified) {
+	// If position not specified, calculate position next to the module with lowest y and largest x
+	if (!positionSpecified) {
+		HttpResponse modulesResponse = httpGet(API_BASE + "/api/modules");
+		json_t* modulesRoot = parseJson(modulesResponse);
+		
+		if (modulesRoot) {
+			json_t* modulesArray = json_object_get(modulesRoot, "modules");
+			if (modulesArray && json_is_array(modulesArray)) {
+				size_t numModules = json_array_size(modulesArray);
+				
+				if (numModules > 0) {
+					// Find the module with the lowest y-coordinate
+					// If there are multiple modules with the same lowest y, find the one with the largest x
+					double lowestY = std::numeric_limits<double>::max();
+					double targetX = 0.0;
+					double targetWidth = 0.0;
+					bool foundModule = false;
+					
+					// First pass: find the lowest y-coordinate
+					for (size_t i = 0; i < numModules; i++) {
+						json_t* module = json_array_get(modulesArray, i);
+						json_t* posJ = json_object_get(module, "pos");
+						
+						if (posJ && json_is_object(posJ)) {
+							json_t* yJ = json_object_get(posJ, "y");
+							if (yJ) {
+								double moduleY = json_number_value(yJ);
+								if (moduleY < lowestY) {
+									lowestY = moduleY;
+								}
+							}
+						}
+					}
+					
+					// Second pass: among modules with lowest y, find the one with largest x
+					for (size_t i = 0; i < numModules; i++) {
+						json_t* module = json_array_get(modulesArray, i);
+						json_t* posJ = json_object_get(module, "pos");
+						json_t* sizeJ = json_object_get(module, "size");
+						
+						if (posJ && json_is_object(posJ)) {
+							json_t* xJ = json_object_get(posJ, "x");
+							json_t* yJ = json_object_get(posJ, "y");
+							json_t* sizeXJ = sizeJ ? json_object_get(sizeJ, "x") : nullptr;
+							
+							if (xJ && yJ) {
+								double moduleY = json_number_value(yJ);
+								double moduleX = json_number_value(xJ);
+								double moduleWidth = sizeXJ ? json_number_value(sizeXJ) : 0.0;
+								
+								// Check if this module has the lowest y-coordinate
+								if (std::abs(moduleY - lowestY) < 0.1) {  // Use small epsilon for floating point comparison
+									if (!foundModule || moduleX > targetX) {
+										targetX = moduleX;
+										targetWidth = moduleWidth;
+										y = moduleY;  // Use the same y-coordinate
+										foundModule = true;
+									}
+								}
+							}
+						}
+					}
+					
+					// Position new module directly to the right of the target module (no gap)
+					if (foundModule) {
+						x = targetX + targetWidth;
+					}
+				}
+			}
+			json_decref(modulesRoot);
+		}
+	}
+	
+	std::cout << "Adding module " << pluginSlug << "/" << modelSlug 
+	          << " at position (" << x << ", " << y << ")..." << std::endl << std::endl;
+
+	// Build JSON request
+	std::ostringstream jsonBody;
+	jsonBody << "{"
+	         << "\"pluginSlug\":\"" << pluginSlug << "\","
+	         << "\"modelSlug\":\"" << modelSlug << "\","
+	         << "\"pos\":{"
+	         << "\"x\":" << x << ","
+	         << "\"y\":" << y
+	         << "}"
+	         << "}";
+
+	HttpResponse response = httpPost(API_BASE + "/api/modules", jsonBody.str());
+	json_t* root = parseJson(response);
+	if (!root) return 1;
+
+	// Extract module ID from response
+	json_t* idJ = json_object_get(root, "id");
+	json_t* pluginSlugJ = json_object_get(root, "pluginSlug");
+	json_t* modelSlugJ = json_object_get(root, "modelSlug");
+
+	if (idJ) {
+		int64_t moduleId = json_integer_value(idJ);
+		std::cout << "✓ Module created successfully!" << std::endl;
+		std::cout << "  Module ID: " << moduleId << std::endl;
+		if (pluginSlugJ) std::cout << "  Plugin:    " << json_string_value(pluginSlugJ) << std::endl;
+		if (modelSlugJ) std::cout << "  Model:     " << json_string_value(modelSlugJ) << std::endl;
+		std::cout << "  Position:  (" << x << ", " << y << ")" << std::endl;
+	}
+
+	json_decref(root);
+	return 0;
+}
+
+// Command: delete-module
+int cmdDeleteModule(const std::string& moduleIdStr) {
+	std::cout << "Deleting module with ID " << moduleIdStr << "..." << std::endl << std::endl;
+
+	HttpResponse response = httpDelete(API_BASE + "/api/modules/" + moduleIdStr);
+	json_t* root = parseJson(response);
+	if (!root) return 1;
+
+	json_t* successJ = json_object_get(root, "success");
+	if (successJ && json_is_true(successJ)) {
+		std::cout << "✓ Module deleted successfully!" << std::endl;
+		std::cout << "  Module ID: " << moduleIdStr << std::endl;
+	} else {
+		std::cerr << "✗ Failed to delete module" << std::endl;
+		json_decref(root);
+		return 1;
+	}
+
+	json_decref(root);
+	return 0;
+}
+
+
 
 // Command: list-plugins
 int cmdListPlugins() {
@@ -970,6 +1105,9 @@ void printUsage(const char* progName) {
 	std::cout << "  list-models [slug]  List all models (optionally filter by plugin slug)" << std::endl;
 	std::cout << "  list-modules        List all modules in the current patch" << std::endl;
 	std::cout << "  show-module <id>    Show detailed information about a module" << std::endl;
+	std::cout << "  add-module          Add a new module to the patch" << std::endl;
+	std::cout << "    --plugin <slug> --model <slug> [--x <pos>] [--y <pos>]" << std::endl;
+	std::cout << "  delete-module <id>  Remove a module from the patch" << std::endl;
 	std::cout << "  list-cables         List all cables in the patch" << std::endl;
 	std::cout << "    --sort-by module  Sort cables by module ID" << std::endl;
 	std::cout << "    --sort-by type    Sort cables by type (audio/CV)" << std::endl;
@@ -987,6 +1125,9 @@ void printUsage(const char* progName) {
 	std::cout << "  " << progName << " list-models Fundamental" << std::endl;
 	std::cout << "  " << progName << " list-modules" << std::endl;
 	std::cout << "  " << progName << " show-module 1" << std::endl;
+	std::cout << "  " << progName << " add-module --plugin Fundamental --model VCO-1" << std::endl;
+	std::cout << "  " << progName << " add-module --plugin Fundamental --model VCA-1 --x 200 --y 0" << std::endl;
+	std::cout << "  " << progName << " delete-module 5" << std::endl;
 	std::cout << "  " << progName << " list-cables" << std::endl;
 	std::cout << "  " << progName << " list-cables --sort-by type" << std::endl;
 	std::cout << "  " << progName << " add-cable --from-module 1 --from-port 0 --to-module 2 --to-port 0" << std::endl;
@@ -1071,6 +1212,39 @@ int main(int argc, char* argv[]) {
 			result = 1;
 		} else {
 			result = cmdShowModule(args[1]);
+		}
+	} else if (command == "delete-module") {
+		if (args.size() < 2) {
+			std::cerr << "Error: delete-module requires a module ID" << std::endl;
+			result = 1;
+		} else {
+			result = cmdDeleteModule(args[1]);
+		}
+	} else if (command == "add-module") {
+		// Parse arguments
+		std::string pluginSlug, modelSlug;
+		double x = 0.0, y = 0.0;
+		bool positionSpecified = false;
+		
+		for (size_t i = 1; i < args.size(); i++) {
+			if (args[i] == "--plugin" && i + 1 < args.size()) {
+				pluginSlug = args[++i];
+			} else if (args[i] == "--model" && i + 1 < args.size()) {
+				modelSlug = args[++i];
+			} else if (args[i] == "--x" && i + 1 < args.size()) {
+				x = std::stod(args[++i]);
+				positionSpecified = true;
+			} else if (args[i] == "--y" && i + 1 < args.size()) {
+				y = std::stod(args[++i]);
+				positionSpecified = true;
+			}
+		}
+		
+		if (pluginSlug.empty() || modelSlug.empty()) {
+			std::cerr << "Error: add-module requires --plugin and --model" << std::endl;
+			result = 1;
+		} else {
+			result = cmdAddModule(pluginSlug, modelSlug, x, y, positionSpecified);
 		}
 	} else if (command == "list-cables" || command == "list-connections") {
 		std::string sortBy = "";
