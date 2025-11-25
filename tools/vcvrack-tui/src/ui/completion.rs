@@ -10,7 +10,9 @@ pub enum CompletionContext {
     /// Completing an available module to add
     AvailableModule,
     /// Completing a module currently in the patch
-    PatchModule,
+    PatchModule {
+        arg_index: usize,
+    },
     /// Completing a port on a specific module
     Port {
         module_name: String,
@@ -133,7 +135,7 @@ impl CompletionEngine {
                 if parts.len() == 1 && !trailing_space {
                     CompletionContext::Command
                 } else {
-                    CompletionContext::PatchModule
+                    CompletionContext::PatchModule { arg_index: 0 }
                 }
             }
             "connect" | "disconnect" => {
@@ -149,15 +151,15 @@ impl CompletionEngine {
                 
                 if args.is_empty() {
                     // No arguments yet, complete source module
-                    CompletionContext::PatchModule
+                    CompletionContext::PatchModule { arg_index: 0 }
                 } else if args.len() == 1 {
                     if trailing_space && !in_quote {
                         // First argument complete with trailing space -> start destination module
-                        CompletionContext::PatchModule
+                        CompletionContext::PatchModule { arg_index: 1 }
                     } else {
                         // Still typing first argument
                         let arg = args[0].as_str();
-                        Self::parse_module_port_context(arg, true)
+                        Self::parse_module_port_context(arg, true, 0)
                     }
                 } else if args.len() == 2 {
                     if trailing_space && !in_quote {
@@ -166,7 +168,7 @@ impl CompletionEngine {
                     } else {
                         // Still typing second argument
                         let arg = args[1].as_str();
-                        Self::parse_module_port_context(arg, false)
+                        Self::parse_module_port_context(arg, false, 1)
                     }
                 } else {
                     CompletionContext::None
@@ -197,7 +199,7 @@ impl CompletionEngine {
     }
 
     /// Parse module:port context
-    fn parse_module_port_context(arg: &str, is_output: bool) -> CompletionContext {
+    fn parse_module_port_context(arg: &str, is_output: bool, arg_index: usize) -> CompletionContext {
         if arg.contains(':') {
             // We have a colon, complete the port
             let module_name = arg.split(':').next().unwrap_or("").to_string();
@@ -207,7 +209,7 @@ impl CompletionEngine {
             }
         } else {
             // No colon, complete module name
-            CompletionContext::PatchModule
+            CompletionContext::PatchModule { arg_index }
         }
     }
 
@@ -219,7 +221,7 @@ impl CompletionEngine {
         self.suggestions = match context {
             CompletionContext::Command => self.complete_command(&query),
             CompletionContext::AvailableModule => self.complete_available_module(&query, modules),
-            CompletionContext::PatchModule => self.complete_patch_module(&query, modules),
+            CompletionContext::PatchModule { .. } => self.complete_patch_module(&query, modules),
             CompletionContext::Port {
                 module_name,
                 is_output,
@@ -248,7 +250,7 @@ impl CompletionEngine {
                     parts.last().unwrap_or(&"").to_string()
                 }
             }
-            CompletionContext::AvailableModule | CompletionContext::PatchModule => {
+            CompletionContext::AvailableModule | CompletionContext::PatchModule { .. } => {
                 if trailing_space {
                     String::new()
                 } else if parts.len() > 1 {
@@ -411,19 +413,51 @@ impl CompletionEngine {
             CompletionContext::AvailableModule => {
                 format!("add {}", suggestion.text)
             }
-            CompletionContext::PatchModule => {
+            CompletionContext::PatchModule { arg_index } => {
                 let parts: Vec<&str> = input.split_whitespace().collect();
                 if parts.is_empty() {
                     return None;
                 }
                 let cmd = parts[0];
-                // Add quotes if module name contains spaces
+                
+                // Parse existing arguments
+                let args = Self::parse_quoted_args(&input[cmd.len()..].trim());
+                
+                // Format the selected module name
                 let module_text = if suggestion.text.contains(' ') {
                     format!("\"{}\"", suggestion.text)
                 } else {
                     suggestion.text.clone()
                 };
-                format!("{} {}", cmd, module_text)
+
+                // Reconstruct command based on arg_index
+                if arg_index == 0 {
+                    // Replacing/adding first argument
+                    if args.len() > 1 {
+                        // Preserve second argument if it exists (though unlikely for arg_index 0)
+                        let second_arg = if args[1].contains(' ') {
+                            format!("\"{}\"", args[1])
+                        } else {
+                            args[1].clone()
+                        };
+                        format!("{} {} {}", cmd, module_text, second_arg)
+                    } else {
+                        format!("{} {}", cmd, module_text)
+                    }
+                } else {
+                    // Replacing/adding second argument
+                    if args.is_empty() {
+                        // Should not happen if arg_index is 1
+                        format!("{} {}", cmd, module_text)
+                    } else {
+                        let first_arg = if args[0].contains(' ') {
+                            format!("\"{}\"", args[0])
+                        } else {
+                            args[0].clone()
+                        };
+                        format!("{} {} {}", cmd, first_arg, module_text)
+                    }
+                }
             }
             CompletionContext::Port { module_name, is_output } => {
                 // Parse with quote support to get arguments

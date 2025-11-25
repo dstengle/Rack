@@ -106,7 +106,7 @@ $(STANDALONE_TARGET): $(STANDALONE_SOURCES) $(STANDALONE_OBJECTS)
 
 # CLI client tool
 
-CLI_SOURCES = tools/rack-cli.cpp
+CLI_SOURCES = tools/rack-cli.cpp tools/linenoise.c
 ifdef ARCH_LIN
 	CLI_TARGET = tools/rack-cli
 	CLI_LDFLAGS += -static-libstdc++ -static-libgcc
