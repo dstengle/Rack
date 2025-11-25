@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y \
     libjack-jackd2-dev \
     libpulse-dev \
     libgl1-mesa-dev \
+    libssl-dev \
     # Additional utilities
     xxd \
     python3 \
@@ -50,7 +51,16 @@ RUN apt-get update && apt-get install -y \
 # Install Python packages for testing
 RUN pip3 install --no-cache-dir --break-system-packages \
     requests \
+    requests \
     jsonschema
+
+# Install Rust
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path && \
+    chmod -R a+w $RUSTUP_HOME $CARGO_HOME
 
 # Accept user ID and group ID as build arguments to match host user
 ARG USER_ID=1000

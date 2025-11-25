@@ -42,6 +42,7 @@ Commands:
     deps               Build dependencies only
     build              Build VCV Rack (libRack.so + Rack binary)
     build-cli          Build the Rack CLI tool
+    build-tui          Build the Rack TUI tool
     clean              Clean build artifacts
     cleandep           Clean dependencies
     run                Run VCV Rack with HTTP API
@@ -58,6 +59,7 @@ Examples:
     $0 deps                  # Build dependencies
     $0 build                 # Build VCV Rack
     $0 build-cli             # Build Rack CLI
+    $0 build-tui             # Build Rack TUI
     $0 full                  # Build deps + rack
     $0 run --port 9000       # Run with API on port 9000
     $0 shell                 # Open interactive shell
@@ -120,6 +122,15 @@ build_cli() {
     success "Rack CLI built successfully"
 }
 
+# Build Rack TUI
+build_tui() {
+    info "Building Rack TUI..."
+    export USER_ID=$(id -u)
+    export GROUP_ID=$(id -g)
+    docker-compose run --rm rack-build bash -c "cd tools/vcvrack-tui && cargo build --release"
+    success "Rack TUI built successfully"
+}
+
 # Clean build artifacts
 clean_build() {
     info "Cleaning build artifacts..."
@@ -175,6 +186,7 @@ full_build() {
     build_deps "$jobs"
     build_rack "$jobs"
     build_cli
+    build_tui
     success "Full build completed successfully"
 }
 
@@ -185,7 +197,7 @@ JOBS="4"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        build-image|shell|deps|build|build-cli|clean|cleandep|run|test-api|full|help)
+        build-image|shell|deps|build|build-cli|build-tui|clean|cleandep|run|test-api|full|help)
             COMMAND="$1"
             shift
             ;;
@@ -242,6 +254,9 @@ case $COMMAND in
         ;;
     build-cli)
         build_cli
+        ;;
+    build-tui)
+        build_tui
         ;;
     clean)
         clean_build
