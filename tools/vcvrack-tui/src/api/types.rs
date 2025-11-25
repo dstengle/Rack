@@ -95,12 +95,12 @@ pub struct Param {
     pub label: String,
     #[serde(default)]
     pub unit: String,
-    #[serde(rename = "minValue")]
-    pub min_value: f64,
-    #[serde(rename = "maxValue")]
-    pub max_value: f64,
-    #[serde(rename = "defaultValue")]
-    pub default_value: f64,
+    #[serde(rename = "minValue", default)]
+    pub min_value: Option<f64>,
+    #[serde(rename = "maxValue", default)]
+    pub max_value: Option<f64>,
+    #[serde(rename = "defaultValue", default)]
+    pub default_value: Option<f64>,
     #[serde(rename = "displayValue", default)]
     pub display_value: String,
 }
@@ -123,6 +123,7 @@ pub struct Port {
 pub struct Light {
     pub id: i64,
     pub value: f64,
+    #[serde(default)]
     pub name: String,
 }
 

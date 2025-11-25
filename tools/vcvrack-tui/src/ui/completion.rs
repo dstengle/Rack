@@ -78,6 +78,38 @@ impl CompletionEngine {
         }
     }
 
+    /// Parse arguments respecting quoted strings
+    /// Returns a vector of arguments, with quotes removed
+    fn parse_quoted_args(input: &str) -> Vec<String> {
+        let mut args = Vec::new();
+        let mut current = String::new();
+        let mut in_quotes = false;
+        let mut chars = input.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '"' => {
+                    in_quotes = !in_quotes;
+                }
+                ' ' if !in_quotes => {
+                    if !current.is_empty() {
+                        args.push(current.clone());
+                        current.clear();
+                    }
+                }
+                _ => {
+                    current.push(ch);
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            args.push(current);
+        }
+
+        args
+    }
+
     /// Determine completion context from current input
     pub fn get_context(input: &str) -> CompletionContext {
         let parts: Vec<&str> = input.split_whitespace().collect();
@@ -109,17 +141,33 @@ impl CompletionEngine {
                     return CompletionContext::Command;
                 }
 
-                // Parse module:port format
-                let arg_index = parts.len() - if trailing_space { 0 } else { 1 };
-
-                if arg_index == 1 {
-                    // First argument - source module:port (outputs)
-                    let arg = if trailing_space { "" } else { parts.get(1).unwrap_or(&"") };
-                    Self::parse_module_port_context(arg, true) // outputs for source
-                } else if arg_index == 2 {
-                    // Second argument - target module:port (inputs)
-                    let arg = if trailing_space { "" } else { parts.get(2).unwrap_or(&"") };
-                    Self::parse_module_port_context(arg, false) // inputs for target
+                // Parse with quote support
+                let args = Self::parse_quoted_args(&input[cmd.len()..].trim());
+                
+                // Determine if we're in a quote
+                let in_quote = input.chars().filter(|&c| c == '"').count() % 2 == 1;
+                
+                if args.is_empty() {
+                    // No arguments yet, complete source module
+                    CompletionContext::PatchModule
+                } else if args.len() == 1 {
+                    if trailing_space && !in_quote {
+                        // First argument complete with trailing space -> start destination module
+                        CompletionContext::PatchModule
+                    } else {
+                        // Still typing first argument
+                        let arg = args[0].as_str();
+                        Self::parse_module_port_context(arg, true)
+                    }
+                } else if args.len() == 2 {
+                    if trailing_space && !in_quote {
+                        // Both arguments complete, no more completion
+                        CompletionContext::None
+                    } else {
+                        // Still typing second argument
+                        let arg = args[1].as_str();
+                        Self::parse_module_port_context(arg, false)
+                    }
                 } else {
                     CompletionContext::None
                 }
@@ -204,20 +252,35 @@ impl CompletionEngine {
                 if trailing_space {
                     String::new()
                 } else if parts.len() > 1 {
-                    // Join all parts after the command
-                    parts[1..].join(" ")
+                    // Use quote-aware parsing to get the current argument
+                    let cmd = parts[0];
+                    let args = Self::parse_quoted_args(&input[cmd.len()..].trim());
+                    // Return the last (incomplete) argument
+                    args.last().map(|s| s.to_string()).unwrap_or_default()
                 } else {
                     String::new()
                 }
             }
             CompletionContext::Port { .. } => {
-                let arg = if trailing_space {
+                // For port completion, we need to find the text after the last colon
+                // Use quote-aware parsing to get the current argument
+                let parts: Vec<&str> = input.split_whitespace().collect();
+                if parts.is_empty() {
+                    return String::new();
+                }
+                let cmd = parts[0];
+                let args = Self::parse_quoted_args(&input[cmd.len()..].trim());
+                
+                // Get the last argument (the one we're currently editing)
+                let current_arg = if trailing_space {
                     ""
                 } else {
-                    parts.last().unwrap_or(&"")
+                    args.last().map(|s| s.as_str()).unwrap_or("")
                 };
-                if let Some(colon_pos) = arg.rfind(':') {
-                    arg[colon_pos + 1..].to_string()
+                
+                // Extract the part after the colon
+                if let Some(colon_pos) = current_arg.rfind(':') {
+                    current_arg[colon_pos + 1..].to_string()
                 } else {
                     String::new()
                 }
@@ -339,7 +402,7 @@ impl CompletionEngine {
     }
 
     /// Apply the selected suggestion to the input
-    pub fn apply(&self, input: &str) -> Option<String> {
+    pub fn apply(&self, input: &str, modules: &ModuleManager) -> Option<String> {
         let suggestion = self.selected_suggestion()?;
         let context = Self::get_context(input);
 
@@ -354,25 +417,49 @@ impl CompletionEngine {
                     return None;
                 }
                 let cmd = parts[0];
-                format!("{} {}", cmd, suggestion.text)
+                // Add quotes if module name contains spaces
+                let module_text = if suggestion.text.contains(' ') {
+                    format!("\"{}\"", suggestion.text)
+                } else {
+                    suggestion.text.clone()
+                };
+                format!("{} {}", cmd, module_text)
             }
-            CompletionContext::Port { module_name, .. } => {
+            CompletionContext::Port { module_name, is_output } => {
+                // Parse with quote support to get arguments
                 let parts: Vec<&str> = input.split_whitespace().collect();
-                if parts.len() < 2 {
+                if parts.is_empty() {
                     return None;
                 }
                 let cmd = parts[0];
-                // Reconstruct command with completed port
-                let prefix = if parts.len() == 2 {
-                    format!("{} {}:{}", cmd, module_name, suggestion.text)
-                } else {
-                    // We have both arguments partially filled
-                    format!(
-                        "{} {} {}:{}",
-                        cmd, parts[1], module_name, suggestion.text
-                    )
+                let args = Self::parse_quoted_args(&input[cmd.len()..].trim());
+                
+                // Look up the actual module to get its friendly name
+                // This ensures we use the friendly name consistently, not whatever the user typed
+                let module = modules.get_by_name(&module_name)?;
+                let friendly_name = &module.friendly_name;
+                
+                // Format module name with quotes if needed
+                let format_module = |name: &str| {
+                    if name.contains(' ') {
+                        format!("\"{}\"", name)
+                    } else {
+                        name.to_string()
+                    }
                 };
-                prefix
+
+                if args.is_empty() || args.len() == 1 {
+                    // Completing first argument (source)
+                    format!("{} {}:{} ", cmd, format_module(friendly_name), suggestion.text)
+                } else {
+                    // Completing second argument (destination)
+                    // Look up the first argument's module to get its friendly name
+                    let first_arg = &args[0];
+                    let first_module = modules.get_by_name(first_arg)?;
+                    let first_friendly_name = &first_module.friendly_name;
+                    let first_arg_formatted = format_module(first_friendly_name);
+                    format!("{} {} {}:{}", cmd, first_arg_formatted, format_module(friendly_name), suggestion.text)
+                }
             }
             CompletionContext::None => return None,
         })

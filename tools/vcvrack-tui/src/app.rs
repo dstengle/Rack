@@ -370,16 +370,40 @@ impl App {
 
     /// Parse connect/disconnect arguments
     fn parse_connect_args(args: &str) -> Result<(String, String, String, String)> {
-        let parts: Vec<&str> = args.split_whitespace().collect();
-        if parts.len() != 2 {
+        // Parse arguments respecting quotes
+        let mut parsed_args = Vec::new();
+        let mut current = String::new();
+        let mut in_quotes = false;
+
+        for ch in args.chars() {
+            match ch {
+                '"' => {
+                    in_quotes = !in_quotes;
+                }
+                ' ' if !in_quotes => {
+                    if !current.is_empty() {
+                        parsed_args.push(current.clone());
+                        current.clear();
+                    }
+                }
+                _ => {
+                    current.push(ch);
+                }
+            }
+        }
+        if !current.is_empty() {
+            parsed_args.push(current);
+        }
+
+        if parsed_args.len() != 2 {
             anyhow::bail!("Usage: connect <module:port> <module:port>");
         }
 
-        let src_parts: Vec<&str> = parts[0].splitn(2, ':').collect();
-        let dst_parts: Vec<&str> = parts[1].splitn(2, ':').collect();
+        let src_parts: Vec<&str> = parsed_args[0].splitn(2, ':').collect();
+        let dst_parts: Vec<&str> = parsed_args[1].splitn(2, ':').collect();
 
         if src_parts.len() != 2 || dst_parts.len() != 2 {
-            anyhow::bail!("Invalid format. Use: module:port");
+            anyhow::bail!("Invalid format. Use: module:port or \"module name\":port");
         }
 
         Ok((

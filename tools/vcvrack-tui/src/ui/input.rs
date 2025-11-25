@@ -95,11 +95,18 @@ fn handle_key(app: &mut App, key: KeyEvent) -> InputResult {
         // Tab - Trigger/cycle completion
         KeyCode::Tab => {
             if app.completion.visible {
-                // Apply current selection and cycle to next
-                if let Some(completed) = app.completion.apply(&app.input) {
+                // Apply current selection
+                if let Some(completed) = app.completion.apply(&app.input, &app.modules) {
                     app.input = completed;
+                    // Re-trigger completion to show next level (e.g., ports after module)
+                    app.completion.update(&app.input, &app.modules);
+                    // If no new suggestions, cycle to next in current list
+                    if !app.completion.visible {
+                        app.completion.next();
+                    }
+                } else {
+                    app.completion.next();
                 }
-                app.completion.next();
             } else {
                 // Trigger completion
                 app.completion.update(&app.input, &app.modules);
@@ -141,7 +148,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> InputResult {
         KeyCode::Enter => {
             if app.completion.visible {
                 // Apply selected completion
-                if let Some(completed) = app.completion.apply(&app.input) {
+                if let Some(completed) = app.completion.apply(&app.input, &app.modules) {
                     app.input = completed;
                 }
                 app.completion.hide();
@@ -191,11 +198,27 @@ fn handle_key(app: &mut App, key: KeyEvent) -> InputResult {
             app.input.push(c);
             // Auto-update completion
             app.completion.update(&app.input, &app.modules);
+            // If user typed a colon, ensure completion is visible for ports
+            if c == ':' && !app.completion.visible {
+                app.completion.update(&app.input, &app.modules);
+            }
             InputResult::Continue(None)
         }
 
         _ => InputResult::Continue(None),
     }
+}
+
+/// Strip surrounding quotes from a string if present
+fn strip_quotes(s: &str) -> String {
+    let trimmed = s.trim();
+    if (trimmed.starts_with('"') && trimmed.ends_with('"')) 
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\'')) {
+        if trimmed.len() >= 2 {
+            return trimmed[1..trimmed.len()-1].to_string();
+        }
+    }
+    trimmed.to_string()
 }
 
 /// Parse a command from user input
@@ -206,7 +229,7 @@ fn parse_command(input: &str) -> Option<Command> {
     }
 
     let cmd = parts[0].to_lowercase();
-    let args = parts.get(1).map(|s| s.to_string());
+    let args = parts.get(1).map(|s| strip_quotes(s));
 
     match cmd.as_str() {
         "add" => args.map(Command::Add),

@@ -332,25 +332,43 @@ impl ModuleManager {
         self.modules.remove(&id);
     }
 
-    /// Get a module by friendly name
+    /// Get a module by friendly name or full name
     pub fn get_by_name(&self, name: &str) -> Option<&LocalModule> {
         let name_lower = name.to_lowercase();
-        // Try exact match first
+        
+        // Try exact match on friendly name first
         if let Some(id) = self.name_to_id.get(name) {
             return self.modules.get(id);
         }
-        // Try case-insensitive match
+        
+        // Try case-insensitive match on friendly name
         for (key, id) in &self.name_to_id {
             if key.to_lowercase() == name_lower {
                 return self.modules.get(id);
             }
         }
-        // Try prefix match
+        
+        // Try exact match on full name
+        for module in self.modules.values() {
+            if module.full_name.to_lowercase() == name_lower {
+                return Some(module);
+            }
+        }
+        
+        // Try prefix match on friendly name
         for (key, id) in &self.name_to_id {
             if key.to_lowercase().starts_with(&name_lower) {
                 return self.modules.get(id);
             }
         }
+        
+        // Try prefix match on full name
+        for module in self.modules.values() {
+            if module.full_name.to_lowercase().starts_with(&name_lower) {
+                return Some(module);
+            }
+        }
+        
         None
     }
 
