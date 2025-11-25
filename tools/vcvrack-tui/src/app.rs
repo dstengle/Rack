@@ -3,10 +3,25 @@
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
 
-use crate::api::{CreateCableRequest, CreateModuleRequest, Position, RackApiClient};
+use crate::api::{Cable, CreateCableRequest, CreateModuleRequest, ModuleDetails, PatchModule, Position, RackApiClient};
 use crate::config::AppSettings;
 use crate::state::{CableManager, LocalModule, ModuleManager};
 use crate::ui::CompletionEngine;
+
+/// Updates from the background task
+#[derive(Debug)]
+pub enum StateUpdate {
+    /// List of modules updated
+    Modules(Vec<PatchModule>),
+    /// List of cables updated
+    Cables(Vec<Cable>),
+    /// Module details updated
+    ModuleDetails(ModuleDetails),
+    /// Connection status changed
+    ConnectionStatus(bool),
+    /// Error occurred
+    Error(String),
+}
 
 /// Application mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,36 +125,38 @@ impl App {
             // Fetch available models
             let models = self.api.get_models().await?;
             self.modules.set_available_models(models);
-
-            // Fetch current patch state
-            self.refresh_state().await?;
         }
 
         Ok(())
     }
 
-    /// Refresh state from server
-    pub async fn refresh_state(&mut self) -> Result<()> {
-        // Fetch modules
-        let patch_modules = self.api.get_modules().await?;
-        self.modules.sync_modules(patch_modules);
-
-        // Collect module IDs first to avoid borrow conflicts
-        let module_ids: Vec<i64> = self.modules.all_modules().iter().map(|m| m.id).collect();
-
-        // Fetch details for each module to get port info
-        for id in module_ids {
-            if let Ok(details) = self.api.get_module_details(id).await {
+    /// Apply an update from the background task
+    pub fn apply_update(&mut self, update: StateUpdate) {
+        match update {
+            StateUpdate::Modules(modules) => {
+                self.modules.sync_modules(modules);
+                self.connected = true;
+            }
+            StateUpdate::Cables(cables) => {
+                self.cables.sync_cables(cables, &self.modules);
+                // Update port connections based on cables
+                // This avoids fetching details for every module constantly
+                self.modules.update_port_connections(self.cables.all_cables());
+                self.connected = true;
+            }
+            StateUpdate::ModuleDetails(details) => {
                 self.modules.update_module_details(details);
             }
+            StateUpdate::ConnectionStatus(status) => {
+                self.connected = status;
+            }
+            StateUpdate::Error(msg) => {
+                // Only show error if we were previously connected or it's a new error
+                if self.connected {
+                     self.show_error(&msg);
+                }
+            }
         }
-
-        // Fetch cables
-        let cables = self.api.get_cables().await?;
-        self.cables.sync_cables(cables, &self.modules);
-
-        self.connected = true;
-        Ok(())
     }
 
     /// Execute a command
@@ -167,7 +184,7 @@ impl App {
                 self.cmd_help(topic.as_deref());
             }
             Command::Refresh => {
-                self.refresh_state().await?;
+                // Trigger a manual refresh (handled by background task mostly, but we can force status)
                 self.show_message("Refreshed from server");
             }
             Command::Quit => {

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::api::{AvailableModel, ModuleDetails, PatchModule, Port};
+use crate::state::cables::DisplayCable;
 
 /// A module in our local state with friendly name
 #[derive(Debug, Clone)]
@@ -261,6 +262,33 @@ impl ModuleManager {
         if let Some(module) = self.modules.get_mut(&details.id) {
             module.inputs = details.inputs;
             module.outputs = details.outputs;
+        }
+    }
+
+    /// Update port connection status based on active cables
+    pub fn update_port_connections(&mut self, cables: Vec<&DisplayCable>) {
+        // Reset all connections first
+        for module in self.modules.values_mut() {
+            for input in &mut module.inputs {
+                input.connected = false;
+            }
+            for output in &mut module.outputs {
+                output.connected = false;
+            }
+        }
+
+        // Mark connected ports
+        for cable in cables {
+            if let Some(module) = self.modules.get_mut(&cable.output_module_id) {
+                if let Some(port) = module.outputs.iter_mut().find(|p| p.id == cable.output_id) {
+                    port.connected = true;
+                }
+            }
+            if let Some(module) = self.modules.get_mut(&cable.input_module_id) {
+                if let Some(port) = module.inputs.iter_mut().find(|p| p.id == cable.input_id) {
+                    port.connected = true;
+                }
+            }
         }
     }
 
